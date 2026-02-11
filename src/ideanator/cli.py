@@ -14,7 +14,7 @@ from ideanator.config import (
     DEFAULT_OUTPUT_FILE,
     get_backend_config,
 )
-from ideanator.llm import OpenAILocalClient, create_server
+from ideanator.llm import OpenAILocalClient, create_server, preflight_check
 from ideanator.pipeline import run_arise_for_idea, run_arise_interactive
 
 
@@ -105,8 +105,7 @@ class IdeanatorCommand(click.Command):
 def _resolve_backend(
     mlx: bool, ollama: bool, external: bool, no_server: bool
 ) -> Backend:
-    """
-    Resolve which backend to use from the mutually exclusive flags.
+    """Resolve which backend to use from the mutually exclusive flags.
 
     Priority: explicit flags > --no-server > default (ollama).
     """
@@ -179,21 +178,22 @@ def main(
     resolved_model = model or cfg.default_model
     resolved_url = server_url or cfg.default_url
 
-    if cfg.needs_server:
-        try:
+    try:
+        if cfg.needs_server:
             server = create_server(backend, resolved_model)
             with server:
                 client = OpenAILocalClient(
                     base_url=resolved_url, model_id=resolved_model
                 )
-                _dispatch(client, file_path, output_path, resolved_model)
-        except KeyboardInterrupt:
-            click.echo("\n\nInterrupted. Cleaning up...")
-    else:
-        client = OpenAILocalClient(
-            base_url=resolved_url, model_id=resolved_model
-        )
-        _dispatch(client, file_path, output_path, resolved_model)
+                _dispatch(client, file_path, output_path, resolved_model, backend, resolved_url)
+        else:
+            client = OpenAILocalClient(
+                base_url=resolved_url, model_id=resolved_model
+            )
+            _dispatch(client, file_path, output_path, resolved_model, backend, resolved_url)
+    except KeyboardInterrupt:
+        click.echo("\n\nInterrupted. Cleaning up...")
+        sys.exit(130)
 
 
 # ── Dispatch + modes ──────────────────────────────────────────────────
@@ -204,8 +204,17 @@ def _dispatch(
     file_path: str | None,
     output_path: str | None,
     model: str,
+    backend: Backend,
+    server_url: str,
 ) -> None:
-    """Route to batch or interactive mode."""
+    """Route to batch or interactive mode, with pre-flight check."""
+    if not preflight_check(server_url, model, backend):
+        click.echo(
+            "Warning: Pre-flight check failed. The server may not be reachable "
+            "or the model may not be available. Proceeding anyway...",
+            err=True,
+        )
+
     if file_path:
         _run_batch(client, file_path, output_path or DEFAULT_OUTPUT_FILE, model)
     else:
@@ -222,10 +231,44 @@ def _run_batch(
     try:
         with open(file_path, "r") as f:
             data = json.load(f)
-            ideas = data.get("ideas", [])
-    except (json.JSONDecodeError, KeyError) as e:
-        click.echo(f"Error loading ideas file: {e}", err=True)
+    except json.JSONDecodeError as e:
+        click.echo(f"Error: Invalid JSON in '{file_path}': {e}", err=True)
         sys.exit(1)
+
+    if not isinstance(data, dict) or "ideas" not in data:
+        click.echo(
+            f'Error: Expected {{"ideas": [...]}} in \'{file_path}\'. '
+            f'Got: {type(data).__name__}',
+            err=True,
+        )
+        sys.exit(1)
+
+    ideas = data["ideas"]
+
+    if not isinstance(ideas, list):
+        click.echo(
+            f'Error: "ideas" must be a list in \'{file_path}\'. '
+            f'Got: {type(ideas).__name__}',
+            err=True,
+        )
+        sys.exit(1)
+
+    if not ideas:
+        click.echo("No ideas found in input file.", err=True)
+        sys.exit(0)
+
+    # Validate entries before starting
+    for i, entry in enumerate(ideas):
+        if not isinstance(entry, dict) or "content" not in entry:
+            click.echo(
+                f'Error: ideas[{i}] must be {{"content": "..."}}, '
+                f"got: {entry!r}",
+                err=True,
+            )
+            sys.exit(1)
+        if not entry["content"].strip():
+            click.echo(f"Error: ideas[{i}] has empty content.", err=True)
+            sys.exit(1)
 
     model_label = getattr(client, "model_id", model) or "unknown"
     click.echo(f"\n{'='*60}")
@@ -239,8 +282,9 @@ def _run_batch(
 
     for i, entry in enumerate(ideas):
         idea = entry["content"]
+        truncated = idea[:60] + "..." if len(idea) > 60 else idea
         click.echo(f"\n{'─'*60}")
-        click.echo(f"  IDEA {i + 1}/{len(ideas)}: {idea[:60]}...")
+        click.echo(f"  IDEA {i + 1}/{len(ideas)}: {truncated}")
         click.echo(f"{'─'*60}")
 
         result = run_arise_for_idea(client, idea, callback=_batch_callback)
@@ -248,7 +292,7 @@ def _run_batch(
         total_phases += len(result.phases_executed)
         total_generic += len(result.generic_flags)
 
-        # Save incrementally after each idea
+        # Save incrementally after each idea (survives interruption)
         with open(output_path, "w") as f:
             json.dump(all_results, f, indent=2, ensure_ascii=False)
 
@@ -290,6 +334,8 @@ def _run_interactive(
             click.echo(f"\n{data}\n")
         elif event == "prompt_user":
             return click.prompt("Your response")
+        elif event == "generic_flag":
+            click.echo("    ⚠ Generic question detected")
         elif event == "synthesis":
             click.echo(f"\n{'─'*60}")
             click.echo("  SYNTHESIS")
@@ -317,11 +363,14 @@ def _batch_callback(event: str, data: str) -> str | None:
     elif event == "phase_start":
         click.echo(f"\n  → {data}")
     elif event == "interviewer":
-        click.echo(f"    Q: {data[:120]}...")
+        truncated = data[:120] + "..." if len(data) > 120 else data
+        click.echo(f"    Q: {truncated}")
     elif event == "user_sim":
-        click.echo(f"    A: {data[:120]}...")
+        truncated = data[:120] + "..." if len(data) > 120 else data
+        click.echo(f"    A: {truncated}")
     elif event == "generic_flag":
-        click.echo(f"    ⚠ Generic: {data[:60]}...")
+        truncated = data[:60] + "..." if len(data) > 60 else data
+        click.echo(f"    ⚠ Generic: {truncated}")
     return None
 
 

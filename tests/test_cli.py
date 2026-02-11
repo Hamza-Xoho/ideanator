@@ -12,6 +12,10 @@ from ideanator.cli import main, _resolve_backend
 from ideanator.config import Backend
 
 
+# All CLI tests mock preflight_check to avoid network calls.
+_PREFLIGHT_PATCH = patch("ideanator.cli.preflight_check", return_value=True)
+
+
 # ── Help & version ────────────────────────────────────────────────────
 
 
@@ -138,7 +142,8 @@ class TestCLIBatchMode:
         mock_client = MockLLMClient(BATCH_MOCK_RESPONSES)
 
         runner = CliRunner()
-        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client):
+        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client), \
+             _PREFLIGHT_PATCH:
             result = runner.invoke(
                 main,
                 ["--external", "-f", input_path, "-o", output_path],
@@ -175,7 +180,8 @@ class TestCLIBatchMode:
         mock_client = MockLLMClient(BATCH_MOCK_RESPONSES)
 
         runner = CliRunner()
-        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client):
+        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client), \
+             _PREFLIGHT_PATCH:
             result = runner.invoke(
                 main,
                 ["--no-server", "-f", input_path, "-o", output_path],
@@ -186,6 +192,98 @@ class TestCLIBatchMode:
 
         Path(input_path).unlink(missing_ok=True)
         Path(output_path).unlink(missing_ok=True)
+
+
+# ── Batch validation ─────────────────────────────────────────────────
+
+
+class TestCLIBatchValidation:
+    def test_invalid_json(self):
+        """Malformed JSON should produce a clear error."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            f.write("{not valid json")
+            input_path = f.name
+
+        runner = CliRunner()
+        with _PREFLIGHT_PATCH:
+            result = runner.invoke(
+                main, ["--external", "-f", input_path]
+            )
+
+        assert result.exit_code != 0
+        assert "Invalid JSON" in result.output or "Error" in result.output
+        Path(input_path).unlink(missing_ok=True)
+
+    def test_missing_ideas_key(self):
+        """JSON without 'ideas' key should error."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump({"items": []}, f)
+            input_path = f.name
+
+        runner = CliRunner()
+        with _PREFLIGHT_PATCH:
+            result = runner.invoke(
+                main, ["--external", "-f", input_path]
+            )
+
+        assert result.exit_code != 0
+        Path(input_path).unlink(missing_ok=True)
+
+    def test_empty_ideas_list(self):
+        """Empty ideas list should exit gracefully."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump({"ideas": []}, f)
+            input_path = f.name
+
+        runner = CliRunner()
+        with _PREFLIGHT_PATCH:
+            result = runner.invoke(
+                main, ["--external", "-f", input_path]
+            )
+
+        assert "No ideas found" in result.output
+        Path(input_path).unlink(missing_ok=True)
+
+    def test_entry_missing_content(self):
+        """Entry without 'content' key should error."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump({"ideas": [{"text": "something"}]}, f)
+            input_path = f.name
+
+        runner = CliRunner()
+        with _PREFLIGHT_PATCH:
+            result = runner.invoke(
+                main, ["--external", "-f", input_path]
+            )
+
+        assert result.exit_code != 0
+        Path(input_path).unlink(missing_ok=True)
+
+    def test_entry_empty_content(self):
+        """Entry with empty content should error."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump({"ideas": [{"content": "  "}]}, f)
+            input_path = f.name
+
+        runner = CliRunner()
+        with _PREFLIGHT_PATCH:
+            result = runner.invoke(
+                main, ["--external", "-f", input_path]
+            )
+
+        assert result.exit_code != 0
+        assert "empty content" in result.output
+        Path(input_path).unlink(missing_ok=True)
 
 
 # ── Interactive mode ──────────────────────────────────────────────────
@@ -216,7 +314,8 @@ class TestCLIInteractiveMode:
 
         mock_client = MockLLMClient(INTERACTIVE_MOCK_RESPONSES)
         runner = CliRunner()
-        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client):
+        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client), \
+             _PREFLIGHT_PATCH:
             result = runner.invoke(
                 main, ["--external"], input=INTERACTIVE_USER_INPUT
             )
@@ -230,7 +329,8 @@ class TestCLIInteractiveMode:
 
         mock_client = MockLLMClient(INTERACTIVE_MOCK_RESPONSES)
         runner = CliRunner()
-        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client):
+        with patch("ideanator.cli.OpenAILocalClient", return_value=mock_client), \
+             _PREFLIGHT_PATCH:
             result = runner.invoke(
                 main, ["--no-server"], input=INTERACTIVE_USER_INPUT
             )
@@ -251,7 +351,7 @@ class TestCLIBackendDefaults:
         runner = CliRunner()
         with patch(
             "ideanator.cli.OpenAILocalClient", return_value=mock_client
-        ) as mock_cls:
+        ) as mock_cls, _PREFLIGHT_PATCH:
             runner.invoke(main, ["--external"], input=INTERACTIVE_USER_INPUT)
             call_args = mock_cls.call_args
             assert call_args is not None
@@ -270,7 +370,7 @@ class TestCLIBackendDefaults:
             "ideanator.cli.OpenAILocalClient", return_value=mock_client
         ) as mock_cls, patch(
             "ideanator.cli.create_server"
-        ) as mock_server:
+        ) as mock_server, _PREFLIGHT_PATCH:
             mock_server.return_value.__enter__ = lambda s: s
             mock_server.return_value.__exit__ = lambda s, *a: None
 
@@ -295,7 +395,7 @@ class TestCLIBackendDefaults:
             "ideanator.cli.OpenAILocalClient", return_value=mock_client
         ) as mock_cls, patch(
             "ideanator.cli.create_server"
-        ) as mock_server:
+        ) as mock_server, _PREFLIGHT_PATCH:
             mock_server.return_value.__enter__ = lambda s: s
             mock_server.return_value.__exit__ = lambda s, *a: None
 
@@ -318,7 +418,7 @@ class TestCLIBackendDefaults:
         runner = CliRunner()
         with patch(
             "ideanator.cli.OpenAILocalClient", return_value=mock_client
-        ) as mock_cls:
+        ) as mock_cls, _PREFLIGHT_PATCH:
             runner.invoke(
                 main,
                 ["--external", "-m", "my-custom-model"],
@@ -339,7 +439,7 @@ class TestCLIBackendDefaults:
         runner = CliRunner()
         with patch(
             "ideanator.cli.OpenAILocalClient", return_value=mock_client
-        ) as mock_cls:
+        ) as mock_cls, _PREFLIGHT_PATCH:
             runner.invoke(
                 main,
                 ["--external", "--server-url", "http://myserver:9999/v1"],
@@ -362,7 +462,7 @@ class TestCLIBackendDefaults:
             "ideanator.cli.OpenAILocalClient", return_value=mock_client
         ) as mock_cls, patch(
             "ideanator.cli.create_server"
-        ) as mock_server:
+        ) as mock_server, _PREFLIGHT_PATCH:
             mock_server.return_value.__enter__ = lambda s: s
             mock_server.return_value.__exit__ = lambda s, *a: None
 

@@ -9,7 +9,10 @@ import sys
 import time
 from typing import Protocol, runtime_checkable
 
+import httpx
+
 from ideanator.config import Backend, SERVER_STARTUP_TIMEOUT
+from ideanator.parser import strip_thinking
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +31,32 @@ class LLMClient(Protocol):
 
 
 class OpenAILocalClient:
-    """Wraps the OpenAI client pointing at any OpenAI-compatible server."""
+    """Wraps the OpenAI client pointing at any OpenAI-compatible server.
 
-    def __init__(self, base_url: str, model_id: str):
+    Handles thinking-model output by:
+    1. Checking backend-specific reasoning fields (reasoning, reasoning_content, thinking).
+    2. Falling back to regex stripping of <think> blocks.
+    3. Optionally disabling thinking via reasoning_effort=none for Ollama.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        model_id: str,
+        timeout: float = 600.0,
+        disable_thinking: bool = True,
+    ):
         from openai import OpenAI
 
-        self.client = OpenAI(base_url=base_url, api_key="local")
+        self.client = OpenAI(
+            base_url=base_url,
+            api_key="local",
+            timeout=httpx.Timeout(timeout, connect=10.0),
+            max_retries=2,
+        )
         self.model_id = model_id
+        self.base_url = base_url
+        self.disable_thinking = disable_thinking
 
     def call(
         self,
@@ -43,6 +65,12 @@ class OpenAILocalClient:
         temperature: float = 0.6,
         max_tokens: int = 300,
     ) -> str:
+        import openai
+
+        extra_body = {}
+        if self.disable_thinking and "ollama" in self.base_url.lower():
+            extra_body["reasoning_effort"] = "none"
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model_id,
@@ -52,11 +80,54 @@ class OpenAILocalClient:
                 ],
                 temperature=temperature,
                 max_tokens=max_tokens,
+                **({"extra_body": extra_body} if extra_body else {}),
             )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            logger.warning("Model call failed: %s", e)
+        except openai.APIConnectionError:
+            logger.error("Cannot connect to LLM server at %s", self.base_url)
+            return "[ERROR: Cannot connect to LLM server. Is it running?]"
+        except openai.APITimeoutError:
+            logger.error("LLM request timed out")
+            return "[ERROR: Request timed out. Model may be loading or overloaded.]"
+        except openai.BadRequestError as e:
+            logger.warning("Bad request: %s", e)
             return f"[ERROR: {e}]"
+        except openai.APIError as e:
+            logger.warning("API error: %s", e)
+            return f"[ERROR: {e}]"
+
+        content = _extract_content(response)
+        return content if content else "[ERROR: Empty response from model]"
+
+
+def _extract_content(response) -> str:
+    """Defensively extract content from an OpenAI-compatible response.
+
+    Checks for backend-specific reasoning fields and strips thinking
+    blocks as a safety net.
+    """
+    if not response.choices:
+        return ""
+
+    msg = response.choices[0].message
+    if msg is None:
+        return ""
+
+    # Check if backend separated reasoning into a dedicated field
+    reasoning = (
+        getattr(msg, "reasoning", None)
+        or getattr(msg, "reasoning_content", None)
+        or getattr(msg, "thinking", None)
+    )
+    if reasoning:
+        logger.debug("Thinking-model reasoning extracted (%d chars)", len(reasoning))
+
+    content = msg.content or ""
+
+    # Safety net: strip <think> blocks that leaked into content
+    if "<think>" in content:
+        content = strip_thinking(content)
+
+    return content.strip()
 
 
 # ── Server Protocol ────────────────────────────────────────────────────
@@ -111,6 +182,10 @@ class MLXServer:
         """Terminate the MLX server process."""
         if self.process:
             self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
             self.process = None
             logger.info("MLX server terminated")
 
@@ -135,13 +210,7 @@ class OllamaServer:
         self._started_by_us = False
 
     def start(self) -> None:
-        """
-        Start Ollama if not already running, then pull the model.
-
-        Ollama's architecture: `ollama serve` runs a background daemon,
-        `ollama pull` downloads models, and the daemon exposes an
-        OpenAI-compatible API at http://localhost:11434/v1.
-        """
+        """Start Ollama if not already running, then pull the model."""
         if not shutil.which("ollama"):
             raise RuntimeError(
                 "Ollama is not installed. Install from https://ollama.com\n"
@@ -149,7 +218,6 @@ class OllamaServer:
                 "  Windows: download from https://ollama.com/download"
             )
 
-        # Check if Ollama is already running by testing the API
         if not self._is_running():
             logger.info("Starting Ollama daemon...")
             self.process = subprocess.Popen(
@@ -160,7 +228,6 @@ class OllamaServer:
             self._started_by_us = True
             self._wait_for_ready()
 
-        # Pull the model (no-op if already downloaded)
         logger.info("Ensuring model is available: %s", self.model_id)
         pull_result = subprocess.run(
             ["ollama", "pull", self.model_id],
@@ -201,6 +268,10 @@ class OllamaServer:
         """Terminate the Ollama daemon if we started it."""
         if self.process and self._started_by_us:
             self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
             self.process = None
             logger.info("Ollama daemon terminated")
 
@@ -210,6 +281,72 @@ class OllamaServer:
 
     def __exit__(self, *args: object) -> None:
         self.stop()
+
+
+# ── Pre-flight Checks ─────────────────────────────────────────────────
+
+
+def preflight_check(base_url: str, model_id: str, backend: Backend) -> bool:
+    """Verify server connectivity and model availability before pipeline.
+
+    Returns True if ready, False if there's a problem (with logged warnings).
+    """
+    if backend == Backend.EXTERNAL:
+        return _check_server_health(base_url)
+
+    if backend == Backend.OLLAMA:
+        if not _check_server_health(base_url.replace("/v1", "")):
+            return False
+        return _check_ollama_model(model_id)
+
+    # MLX — just check the server is responding
+    return _check_server_health(base_url)
+
+
+def _check_server_health(base_url: str) -> bool:
+    """Quick connectivity check."""
+    import urllib.request
+
+    # Normalize: try /v1/models or just the base
+    url = base_url.rstrip("/")
+    try:
+        req = urllib.request.Request(f"{url}/models")
+        with urllib.request.urlopen(req, timeout=5):
+            return True
+    except Exception:
+        pass
+
+    # Fallback: try the base URL itself
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5):
+            return True
+    except Exception:
+        logger.warning("Cannot reach LLM server at %s", base_url)
+        return False
+
+
+def _check_ollama_model(model_id: str) -> bool:
+    """Check if a specific model is available in Ollama."""
+    try:
+        import json
+        import urllib.request
+
+        req = urllib.request.Request("http://localhost:11434/api/tags")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            available = {m["name"] for m in data.get("models", [])}
+            if any(m == model_id or m.startswith(f"{model_id}:") for m in available):
+                return True
+            logger.warning(
+                "Model '%s' not found in Ollama. Available: %s",
+                model_id,
+                ", ".join(sorted(available)[:5]),
+            )
+            return False
+    except Exception as e:
+        logger.warning("Could not check Ollama models: %s", e)
+        return False
 
 
 # ── Factory ───────────────────────────────────────────────────────────
@@ -222,5 +359,7 @@ def create_server(backend: Backend, model_id: str) -> ServerManager:
     elif backend == Backend.OLLAMA:
         return OllamaServer(model_id=model_id)
     else:
-        raise ValueError(f"Backend '{backend}' does not support auto-start. "
-                         f"Use --backend external with --server-url.")
+        raise ValueError(
+            f"Backend '{backend}' does not support auto-start. "
+            f"Use --external with --server-url."
+        )
