@@ -120,3 +120,5 @@ class IdeaResult:
     conversation: list[ConversationTurn]
     generic_flags: list[GenericFlag]
     synthesis: str
+    # Three-stage refactoring output (populated when refactoring engine runs)
+    refactored: object | None = None  # RefactoredIdea (avoids circular import)

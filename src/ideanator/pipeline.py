@@ -1,4 +1,9 @@
-"""ARISE pipeline orchestration — the core idea development loop."""
+"""ARISE pipeline orchestration — the core idea development loop.
+
+After the ARISE questioning phases complete, the conversation is passed
+through the three-stage refactoring engine (Extract → Synthesize → Validate)
+to produce a structured, faithful, and non-sycophantic idea statement.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,7 @@ from ideanator.llm import LLMClient
 from ideanator.parser import is_question_generic, parse_structured_response
 from ideanator.phases import build_phase_prompt, determine_phases
 from ideanator.prompts import get_simulated_user_prompt, get_synthesis_prompt
+from ideanator.refactor import refactor_idea, format_exploration_status
 from ideanator.scorer import assess_vagueness
 from ideanator.types import (
     ConversationTurn,
@@ -44,6 +50,11 @@ def _run_arise_core(
 ) -> IdeaResult:
     """Shared pipeline logic for both batch and interactive modes.
 
+    After ARISE questioning phases, runs the three-stage refactoring engine:
+    1. Extract: Parse conversation into structured dimensions with citations
+    2. Synthesize: Chain-of-density adapted synthesis with banned words
+    3. Validate: Faithfulness, completeness, and sycophancy checks
+
     Args:
         client: LLM client for all model calls.
         idea: The raw idea text to develop.
@@ -65,7 +76,7 @@ def _run_arise_core(
         callback,
         "vagueness",
         f"Covered: {dims.score_str} | Missing: {', '.join(uncovered) or 'None'} | "
-        f"Phases: {' \u2192 '.join(p.value for p in phases)}",
+        f"Phases: {' → '.join(p.value for p in phases)}",
     )
 
     result = IdeaResult(
@@ -119,7 +130,7 @@ def _run_arise_core(
                 )
                 _emit(callback, "generic_flag", q)
 
-        conversation_log += f"\n[Interviewer \u2014 {phase_label}]:\n{display_text}\n"
+        conversation_log += f"\n[Interviewer — {phase_label}]:\n{display_text}\n"
         result.conversation.append(
             ConversationTurn(
                 phase=phase.value,
@@ -159,8 +170,8 @@ def _run_arise_core(
 
         result.phases_executed.append(phase.value)
 
-    # Step 3: Synthesis
-    _emit(callback, "status", "Synthesizing...")
+    # Step 3: Legacy synthesis (kept for backwards compatibility)
+    _emit(callback, "status", "Running legacy synthesis...")
     synth_prompt = get_synthesis_prompt().format(conversation=conversation_log)
     synthesis = client.call(
         system_prompt=synth_prompt,
@@ -169,9 +180,61 @@ def _run_arise_core(
         max_tokens=TOKENS.synthesis,
     )
     result.synthesis = synthesis
-    _emit(callback, "synthesis", synthesis)
+
+    # Step 4: Three-Stage Refactoring Engine (Extract → Synthesize → Validate)
+    _emit(callback, "status", "Running three-stage refactoring engine...")
+    refactored = refactor_idea(
+        client=client,
+        transcript=conversation_log,
+        conversation=result.conversation,
+        phases_executed=result.phases_executed,
+        callback=callback,
+    )
+    result.refactored = refactored
+
+    # Emit the refined output
+    _emit(callback, "refactored", _format_refactored_output(refactored))
 
     return result
+
+
+def _format_refactored_output(refactored) -> str:
+    """Format the RefactoredIdea for display."""
+    lines = []
+
+    if refactored.one_liner:
+        lines.append(f"ONE-LINER: {refactored.one_liner}")
+    if refactored.problem:
+        lines.append(f"\nPROBLEM: {refactored.problem}")
+    if refactored.solution:
+        lines.append(f"\nSOLUTION: {refactored.solution}")
+    if refactored.audience:
+        lines.append(f"\nAUDIENCE: {refactored.audience}")
+    if refactored.differentiator:
+        lines.append(f"\nDIFFERENTIATOR: {refactored.differentiator}")
+
+    if refactored.open_questions:
+        lines.append("\nOPEN QUESTIONS:")
+        for q in refactored.open_questions:
+            lines.append(f"  • {q}")
+
+    if refactored.exploration_status:
+        lines.append(f"\nEXPLORATION STATUS:")
+        lines.append(format_exploration_status(refactored.exploration_status))
+
+    if refactored.contradictions_found:
+        lines.append(f"\nCONTRADICTIONS ({len(refactored.contradictions_found)}):")
+        for c in refactored.contradictions_found:
+            lines.append(f"  ⚠ {c.earlier[:60]}... vs {c.later[:60]}...")
+
+    if refactored.validation:
+        v = refactored.validation
+        lines.append(
+            f"\nVALIDATION: confidence={v.confidence:.2f} | "
+            f"refinement rounds={refactored.refinement_rounds}"
+        )
+
+    return "\n".join(lines)
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -184,7 +247,8 @@ def run_arise_for_idea(
 ) -> IdeaResult:
     """Execute the full ARISE pipeline for a single idea (batch mode).
 
-    Uses LLM-simulated user responses.
+    Uses LLM-simulated user responses, then runs the three-stage
+    refactoring engine (Extract → Synthesize → Validate).
     """
     return _run_arise_core(client, idea, interactive=False, callback=callback)
 
@@ -194,7 +258,10 @@ def run_arise_interactive(
     idea: str,
     callback: ProgressCallback | None = None,
 ) -> IdeaResult:
-    """Execute the ARISE pipeline interactively — real user answers questions."""
+    """Execute the ARISE pipeline interactively — real user answers questions.
+
+    After questioning, runs the three-stage refactoring engine.
+    """
     return _run_arise_core(client, idea, interactive=True, callback=callback)
 
 

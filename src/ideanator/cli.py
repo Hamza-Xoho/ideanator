@@ -338,9 +338,15 @@ def _run_interactive(
             click.echo("    ⚠ Generic question detected")
         elif event == "synthesis":
             click.echo(f"\n{'─'*60}")
-            click.echo("  SYNTHESIS")
+            click.echo("  LEGACY SYNTHESIS")
             click.echo(f"{'─'*60}")
             click.echo(data)
+        elif event == "refactored":
+            click.echo(f"\n{'━'*60}")
+            click.echo("  REFINED IDEA STATEMENT")
+            click.echo(f"{'━'*60}")
+            click.echo(data)
+            click.echo(f"{'━'*60}")
         return None
 
     result = run_arise_interactive(client, idea, callback=interactive_callback)
@@ -371,12 +377,19 @@ def _batch_callback(event: str, data: str) -> str | None:
     elif event == "generic_flag":
         truncated = data[:60] + "..." if len(data) > 60 else data
         click.echo(f"    ⚠ Generic: {truncated}")
+    elif event == "refactored":
+        click.echo(f"\n  ── Refined Statement ──")
+        # Show just the one-liner in batch mode
+        for line in data.split("\n"):
+            if line.startswith("ONE-LINER:"):
+                click.echo(f"    {line}")
+                break
     return None
 
 
 def _result_to_dict(result) -> dict:
     """Convert an IdeaResult to a JSON-serializable dict."""
-    return {
+    data = {
         "original_idea": result.original_idea,
         "timestamp": result.timestamp,
         "vagueness_assessment": result.vagueness_assessment,
@@ -395,3 +408,29 @@ def _result_to_dict(result) -> dict:
         ],
         "synthesis": result.synthesis,
     }
+
+    # Include three-stage refactored output if available
+    if result.refactored is not None:
+        r = result.refactored
+        data["refactored"] = {
+            "one_liner": r.one_liner,
+            "problem": r.problem,
+            "solution": r.solution,
+            "audience": r.audience,
+            "differentiator": r.differentiator,
+            "open_questions": r.open_questions,
+            "raw_synthesis": r.raw_synthesis,
+            "refinement_rounds": r.refinement_rounds,
+        }
+        if r.validation is not None:
+            data["refactored"]["validation"] = r.validation.model_dump()
+        if r.exploration_status is not None:
+            data["refactored"]["exploration_status"] = r.exploration_status.model_dump()
+        if r.contradictions_found:
+            data["refactored"]["contradictions"] = [
+                c.model_dump() for c in r.contradictions_found
+            ]
+        if r.extracted_insights is not None:
+            data["refactored"]["extracted_insights"] = r.extracted_insights.model_dump()
+
+    return data

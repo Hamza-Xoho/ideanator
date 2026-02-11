@@ -5,6 +5,60 @@ from __future__ import annotations
 import pytest
 
 from ideanator.prompts import clear_cache
+from ideanator.refactor import clear_refactor_cache
+
+
+# Standard mock responses for the three-stage refactoring engine
+MOCK_EXTRACT_RESPONSE = """{
+    "problem": "Current tools are too complicated [Turn 3]",
+    "audience": "Frustrated users in this domain [Turn 1]",
+    "solution": "A simplified tool [Turn 1]",
+    "differentiation": "Focus on simplicity over features [Turn 4]",
+    "motivation": "Personal passion for the area [Turn 2]",
+    "key_phrases": ["too complicated", "effortless and intuitive", "adoption would be the hardest part"],
+    "contradictions": [],
+    "user_register": "casual",
+    "unresolved": ["What specific features?", "Revenue model?"]
+}"""
+
+MOCK_SYNTHESIZE_RESPONSE = (
+    "[ONE-LINER]: I'm building a simplified tool for frustrated users "
+    "who find current solutions too complicated.\n"
+    "[PROBLEM]: Current tools in this space are too complicated. "
+    "Users spend more time fighting the tool than solving their actual problem.\n"
+    "[SOLUTION]: A stripped-down tool that focuses on the core workflow, "
+    "making the experience effortless and intuitive.\n"
+    "[AUDIENCE]: People who have tried existing tools and given up "
+    "because they felt overwhelmed.\n"
+    "[DIFFERENTIATOR]: While competitors keep adding features, "
+    "this focuses purely on simplicity — doing one thing well.\n"
+    "[OPEN QUESTIONS]:\n"
+    "- What specific features would the MVP include?\n"
+    "- How would users discover this tool?\n"
+    "- What's the revenue model?"
+)
+
+MOCK_VALIDATE_RESPONSE = """{
+    "faithfulness": {
+        "supported_count": 5,
+        "implied_count": 1,
+        "unsupported_count": 0,
+        "unsupported_claims": []
+    },
+    "completeness": {
+        "problem": true,
+        "audience": true,
+        "solution": true,
+        "differentiation": true,
+        "missing": []
+    },
+    "sycophancy": {
+        "flags": [],
+        "severity": "none"
+    },
+    "confidence": 0.85,
+    "critique": "PASS"
+}"""
 
 
 class MockLLMClient:
@@ -41,7 +95,11 @@ class MockLLMClient:
 
 @pytest.fixture
 def mock_client():
-    """Create a MockLLMClient with default responses."""
+    """Create a MockLLMClient with default responses.
+
+    Includes responses for the full pipeline:
+    ARISE phases (vagueness + 4 phases × 2 + synthesis) + refactoring (extract + synthesize + validate).
+    """
     return MockLLMClient(
         responses=[
             # Vagueness assessment — lists all as missing
@@ -71,7 +129,7 @@ def mock_client():
             "[QUESTION 2] What's the smallest version you could test?",
             # Simulated user response (for scope)
             "I think adoption would be the hardest part.",
-            # Synthesis
+            # Legacy synthesis
             "[IDEA]: A simplified tool for the domain\n"
             "[WHO]: Frustrated users\n"
             "[PROBLEM]: Current tools too complex\n"
@@ -80,6 +138,12 @@ def mock_client():
             "[RISKS]: Adoption\n"
             "[MVP]: Simple prototype\n"
             "[DIFFERENTIATION]: Simplicity focus",
+            # Stage 1: Extract
+            MOCK_EXTRACT_RESPONSE,
+            # Stage 2: Synthesize
+            MOCK_SYNTHESIZE_RESPONSE,
+            # Stage 3: Validate
+            MOCK_VALIDATE_RESPONSE,
         ]
     )
 
@@ -111,7 +175,9 @@ def detailed_idea():
 
 @pytest.fixture(autouse=True)
 def _clear_prompt_cache():
-    """Clear the prompt cache before each test to ensure isolation."""
+    """Clear all prompt caches before each test to ensure isolation."""
     clear_cache()
+    clear_refactor_cache()
     yield
     clear_cache()
+    clear_refactor_cache()

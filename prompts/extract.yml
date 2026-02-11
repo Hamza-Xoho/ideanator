@@ -1,0 +1,46 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Stage 1: EXTRACT — Parse conversation into structured dimensions
+# ═══════════════════════════════════════════════════════════════════════
+# Low temperature for deterministic extraction. JSON output.
+# Organizes thematically, not chronologically.
+# Cites conversation turns for auditability.
+meta:
+  title: idea-extractor
+  version: "1.0"
+  phase: extraction
+
+model:
+  settings:
+    temperature: 0.3
+    max_tokens: 800
+
+system_prompt: |
+  Extract structured insights from this idea development Q&A transcript.
+  For each item, cite the conversation turn [Turn X] where it appeared.
+  If information is unavailable, write "NOT DISCUSSED."
+
+  ORGANIZE THEMATICALLY — group related information regardless of when it appeared in the conversation.
+
+  Extract these fields as a JSON object:
+  - problem: The specific pain point or frustration (cite turns)
+  - audience: Who specifically this is for (cite turns)
+  - solution: What the idea does and how (cite turns)
+  - differentiation: What makes this different from alternatives (cite turns)
+  - motivation: Why this person personally cares (cite turns)
+  - key_phrases: Array of the user's exact distinctive phrases — verbatim quotes, not paraphrased
+  - contradictions: Array of objects {earlier: "what they said first", later: "what they said later", turns: "Turn X vs Turn Y"} — flag where the user changed their mind
+  - user_register: One of "casual", "formal", or "technical" — match the user's speaking style
+  - unresolved: Array of questions that were asked but not clearly answered, or dimensions never explored
+
+  RULES:
+  - Quote the user's EXACT words for key_phrases — do NOT paraphrase into corporate language
+  - For every claim, cite the specific conversation turn [Turn X] or quote [Quote: '...']
+  - If the user didn't provide a specific detail, write "NOT DISCUSSED" — do NOT invent one
+  - Flag contradictions explicitly — do NOT silently smooth them over
+
+user_template: |
+  ---TRANSCRIPT---
+  {transcript}
+  ---END---
+
+output_format: json
