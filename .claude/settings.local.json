@@ -3,7 +3,8 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(pip install:*)",
-      "Bash(python -m pytest:*)"
+      "Bash(python -m pytest:*)",
+      "Bash(ideanator:*)"
     ]
   }
 }

@@ -5,96 +5,211 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import click
 
-from ideanator.config import DEFAULT_MODEL_ID, DEFAULT_OUTPUT_FILE, DEFAULT_SERVER_URL
-from ideanator.llm import MLXServer, OpenAILocalClient
+from ideanator.config import (
+    Backend,
+    DEFAULT_OUTPUT_FILE,
+    get_backend_config,
+)
+from ideanator.llm import OpenAILocalClient, create_server
 from ideanator.pipeline import run_arise_for_idea, run_arise_interactive
 
 
-@click.command()
-@click.option(
-    "--file",
-    "-f",
-    "file_path",
-    type=click.Path(exists=True),
-    help="JSON file with ideas for batch processing.",
-)
-@click.option(
-    "--model",
-    "-m",
-    default=DEFAULT_MODEL_ID,
-    show_default=True,
-    help="Model ID for the MLX server.",
-)
-@click.option(
-    "--output",
-    "-o",
-    "output_path",
-    type=click.Path(),
-    help="Output path for results JSON.",
-)
-@click.option(
-    "--server-url",
-    default=DEFAULT_SERVER_URL,
-    show_default=True,
-    help="LLM server URL (if server is already running).",
-)
-@click.option(
-    "--no-server",
-    is_flag=True,
-    help="Skip auto-starting the MLX server (assumes it's already running).",
-)
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    help="Enable verbose debug logging.",
-)
+# ── Custom help formatter ─────────────────────────────────────────────
+
+
+class IdeanatorHelpFormatter(click.HelpFormatter):
+    """Wider formatter so examples don't wrap awkwardly."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("max_width", 90)
+        super().__init__(**kwargs)
+
+
+class IdeanatorCommand(click.Command):
+    """Custom command class with a polished help layout."""
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        formatter = IdeanatorHelpFormatter()
+
+        # Title
+        formatter.write("\n")
+        formatter.write("  ideanator — develop vague ideas through structured questioning\n")
+        formatter.write("\n")
+
+        # Usage
+        formatter.write("  USAGE\n")
+        formatter.write("    ideanator [backend] [options]\n")
+        formatter.write("\n")
+
+        # Backends
+        formatter.write("  BACKENDS (pick one)\n")
+        formatter.write("    --ollama            Use Ollama  (Linux, macOS, Windows)\n")
+        formatter.write("    --mlx               Use MLX     (macOS + Apple Silicon)\n")
+        formatter.write("    --external          Use any already-running server\n")
+        formatter.write("    (default: --ollama)\n")
+        formatter.write("\n")
+
+        # Options
+        formatter.write("  OPTIONS\n")
+        formatter.write("    -m, --model ID      Model to use (default depends on backend)\n")
+        formatter.write("    --server-url URL    Override the server URL\n")
+        formatter.write("    -f, --file PATH     Batch mode: process ideas from a JSON file\n")
+        formatter.write("    -o, --output PATH   Save results to a JSON file\n")
+        formatter.write("    -v, --verbose       Show debug logs\n")
+        formatter.write("    --version           Show version\n")
+        formatter.write("    --help              Show this help\n")
+        formatter.write("\n")
+
+        # Examples
+        formatter.write("  EXAMPLES\n")
+        formatter.write("\n")
+        formatter.write("    Interactive (type your idea, answer questions):\n")
+        formatter.write("      ideanator --ollama\n")
+        formatter.write("      ideanator --ollama -m mistral:7b\n")
+        formatter.write("      ideanator --mlx -m mlx-community/Llama-3.2-1B-Instruct-4bit\n")
+        formatter.write("      ideanator --external --server-url http://localhost:1234/v1\n")
+        formatter.write("\n")
+        formatter.write("    Batch (process a file of ideas with simulated responses):\n")
+        formatter.write("      ideanator --ollama -f ideas.json -o results.json\n")
+        formatter.write("      ideanator --mlx -f ideas.json\n")
+        formatter.write("\n")
+
+        # Backend defaults
+        formatter.write("  BACKEND DEFAULTS\n")
+        formatter.write("    ┌────────────┬────────────────────────────────────────┬──────────────────────────────┐\n")
+        formatter.write("    │ Backend    │ Default model                          │ Default URL                  │\n")
+        formatter.write("    ├────────────┼────────────────────────────────────────┼──────────────────────────────┤\n")
+        formatter.write("    │ --ollama   │ llama3.2:3b                            │ http://localhost:11434/v1     │\n")
+        formatter.write("    │ --mlx      │ mlx-community/Llama-3.2-3B-Instruct.. │ http://localhost:8080/v1      │\n")
+        formatter.write("    │ --external │ default                                │ http://localhost:8080/v1      │\n")
+        formatter.write("    └────────────┴────────────────────────────────────────┴──────────────────────────────┘\n")
+        formatter.write("\n")
+        formatter.write("    Override any default with -m or --server-url.\n")
+        formatter.write("\n")
+
+        # Input format
+        formatter.write("  INPUT FILE FORMAT (for -f / --file)\n")
+        formatter.write('    { "ideas": [{"content": "I want to build..."}, ...] }\n')
+        formatter.write("\n")
+
+        click.echo(formatter.getvalue(), color=ctx.color)
+
+
+# ── Resolve backend from flags ────────────────────────────────────────
+
+
+def _resolve_backend(
+    mlx: bool, ollama: bool, external: bool, no_server: bool
+) -> Backend:
+    """
+    Resolve which backend to use from the mutually exclusive flags.
+
+    Priority: explicit flags > --no-server > default (ollama).
+    """
+    selected = sum([mlx, ollama, external])
+    if selected > 1:
+        raise click.UsageError(
+            "Pick only one backend: --mlx, --ollama, or --external"
+        )
+
+    if mlx:
+        return Backend.MLX
+    if ollama:
+        return Backend.OLLAMA
+    if external or no_server:
+        return Backend.EXTERNAL
+
+    # Default backend
+    return Backend.OLLAMA
+
+
+# ── Main command ──────────────────────────────────────────────────────
+
+
+@click.command(cls=IdeanatorCommand)
+@click.option("--ollama", "use_ollama", is_flag=True,
+              help="Use Ollama backend (Linux, macOS, Windows).")
+@click.option("--mlx", "use_mlx", is_flag=True,
+              help="Use MLX backend (macOS + Apple Silicon).")
+@click.option("--external", "use_external", is_flag=True,
+              help="Connect to an already-running server.")
+@click.option("--no-server", is_flag=True, hidden=True,
+              help="Alias for --external (backwards compat).")
+@click.option("-m", "--model", default=None,
+              help="Model ID (default depends on backend).")
+@click.option("--server-url", default=None,
+              help="Override the LLM server URL.")
+@click.option("-f", "--file", "file_path", type=click.Path(exists=True),
+              help="JSON file with ideas for batch processing.")
+@click.option("-o", "--output", "output_path", type=click.Path(),
+              help="Output path for results JSON.")
+@click.option("-v", "--verbose", is_flag=True,
+              help="Enable verbose debug logging.")
 @click.version_option(package_name="ideanator")
 def main(
-    file_path: str | None,
-    model: str,
-    output_path: str | None,
-    server_url: str,
+    use_ollama: bool,
+    use_mlx: bool,
+    use_external: bool,
     no_server: bool,
+    model: str | None,
+    server_url: str | None,
+    file_path: str | None,
+    output_path: str | None,
     verbose: bool,
 ) -> None:
-    """
-    ideanator — Develop vague ideas through the ARISE questioning pipeline.
-
-    By default, runs in interactive mode: you type your idea and answer
-    questions from the ARISE framework to develop it further.
-
-    Use --file to process multiple ideas from a JSON file in batch mode
-    (with simulated user responses for testing prompt efficacy).
-    """
+    """ideanator — develop vague ideas through the ARISE questioning pipeline."""
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.WARNING,
         format="%(levelname)s: %(message)s",
     )
 
-    if no_server:
-        client = OpenAILocalClient(base_url=server_url, model_id=model)
-        if file_path:
-            _run_batch(client, file_path, output_path or DEFAULT_OUTPUT_FILE, model)
-        else:
-            _run_interactive(client, output_path)
-    else:
+    # Resolve backend
+    try:
+        backend = _resolve_backend(use_mlx, use_ollama, use_external, no_server)
+    except click.UsageError as e:
+        raise SystemExit(f"Error: {e}")
+
+    cfg = get_backend_config(backend)
+
+    # Apply defaults: user-provided values override backend defaults
+    resolved_model = model or cfg.default_model
+    resolved_url = server_url or cfg.default_url
+
+    if cfg.needs_server:
         try:
-            with MLXServer(model_id=model) as _server:
-                client = OpenAILocalClient(base_url=server_url, model_id=model)
-                if file_path:
-                    _run_batch(
-                        client, file_path, output_path or DEFAULT_OUTPUT_FILE, model
-                    )
-                else:
-                    _run_interactive(client, output_path)
+            server = create_server(backend, resolved_model)
+            with server:
+                client = OpenAILocalClient(
+                    base_url=resolved_url, model_id=resolved_model
+                )
+                _dispatch(client, file_path, output_path, resolved_model)
         except KeyboardInterrupt:
             click.echo("\n\nInterrupted. Cleaning up...")
+    else:
+        client = OpenAILocalClient(
+            base_url=resolved_url, model_id=resolved_model
+        )
+        _dispatch(client, file_path, output_path, resolved_model)
+
+
+# ── Dispatch + modes ──────────────────────────────────────────────────
+
+
+def _dispatch(
+    client: OpenAILocalClient,
+    file_path: str | None,
+    output_path: str | None,
+    model: str,
+) -> None:
+    """Route to batch or interactive mode."""
+    if file_path:
+        _run_batch(client, file_path, output_path or DEFAULT_OUTPUT_FILE, model)
+    else:
+        _run_interactive(client, output_path)
 
 
 def _run_batch(
@@ -114,7 +229,7 @@ def _run_batch(
 
     model_label = getattr(client, "model_id", model) or "unknown"
     click.echo(f"\n{'='*60}")
-    click.echo(f"  ARISE Pipeline — Batch Mode")
+    click.echo("  ARISE Pipeline — Batch Mode")
     click.echo(f"  Ideas: {len(ideas)} | Model: {model_label}")
     click.echo(f"{'='*60}\n")
 
@@ -139,7 +254,7 @@ def _run_batch(
 
     avg_phases = total_phases / len(all_results) if all_results else 0
     click.echo(f"\n{'='*60}")
-    click.echo(f"  PIPELINE COMPLETE")
+    click.echo("  PIPELINE COMPLETE")
     click.echo(f"  Ideas: {len(all_results)}")
     click.echo(f"  Total phases: {total_phases} (avg {avg_phases:.1f}/idea)")
     click.echo(f"  Generic flags: {total_generic}")
@@ -152,10 +267,10 @@ def _run_interactive(
     output_path: str | None,
 ) -> None:
     """Interactive mode: prompt user for their idea, run ARISE pipeline."""
-    click.echo("\n" + "="*60)
+    click.echo("\n" + "=" * 60)
     click.echo("  ARISE Pipeline — Interactive Mode")
     click.echo("  Develop your idea through guided questioning.")
-    click.echo("="*60 + "\n")
+    click.echo("=" * 60 + "\n")
 
     idea = click.prompt("What's your idea?", type=str)
     if not idea.strip():
@@ -188,6 +303,9 @@ def _run_interactive(
         with open(output_path, "w") as f:
             json.dump(_result_to_dict(result), f, indent=2, ensure_ascii=False)
         click.echo(f"\n  Results saved to {output_path}")
+
+
+# ── Callbacks + helpers ───────────────────────────────────────────────
 
 
 def _batch_callback(event: str, data: str) -> str | None:
