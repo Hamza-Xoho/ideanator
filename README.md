@@ -120,7 +120,7 @@ After all phases complete, the refactoring engine produces a structured output:
 
 ### Quick install (recommended)
 
-Install directly from GitHub — no git clone needed:
+Install directly from GitHub — no git clone needed. The default install includes the Terminal UI and MLX support out of the box:
 
 ```bash
 # Using pipx (recommended — installs in an isolated environment)
@@ -128,18 +128,6 @@ pipx install git+https://github.com/Hamza-Xoho/ideanatorCLI.git
 
 # Using pip
 pip install git+https://github.com/Hamza-Xoho/ideanatorCLI.git
-```
-
-### With Terminal UI support
-
-```bash
-pip install "ideanator[tui] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
-```
-
-### With MLX support (macOS Apple Silicon)
-
-```bash
-pip install "ideanator[mlx] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
 ```
 
 ### Development install
@@ -183,7 +171,7 @@ make uninstall
 | Backend | Platform | Install |
 |---------|----------|---------|
 | **Ollama** | Linux, macOS, Windows | [ollama.com](https://ollama.com) |
-| **MLX** | macOS (Apple Silicon) | See "With MLX support" above |
+| **MLX** | macOS (Apple Silicon) | Included by default |
 | **External** | Any | Any OpenAI-compatible server |
 
 ---
@@ -243,14 +231,12 @@ ideanator will automatically start the Ollama daemon, pull the model, and begin 
 ### With MLX (macOS + Apple Silicon)
 
 ```bash
-pip install "ideanator[mlx] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
 ideanator --mlx
 ```
 
 ### With the Terminal UI
 
 ```bash
-pip install "ideanator[tui] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
 ideanator --tui
 ```
 
@@ -278,7 +264,7 @@ ideanator --external --server-url http://localhost:1234/v1
 
 ### Terminal UI (TUI)
 
-Launch the full-screen Terminal UI with `--tui`. It provides a messaging-style conversation view, real-time phase indicators, dimension tracking pills, and a settings screen — all within your terminal. Requires the `tui` extra (`pip install "ideanator[tui]"`).
+Launch the full-screen Terminal UI with `--tui`. It provides a messaging-style conversation view, real-time phase indicators, dimension tracking pills, and a settings screen — all within your terminal.
 
 ```bash
 # Launch with defaults

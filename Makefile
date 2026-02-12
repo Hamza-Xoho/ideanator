@@ -1,4 +1,4 @@
-.PHONY: install install-dev install-mlx update uninstall test test-cov lint lint-fix typecheck clean help
+.PHONY: install install-dev update uninstall test test-cov lint lint-fix typecheck clean help
 
 PYTHON ?= python3
 PIP    ?= pip
@@ -12,9 +12,6 @@ install: ## Install ideanator (user install from local clone)
 
 install-dev: ## Install in editable mode with dev dependencies
 	$(PIP) install -e ".[dev]"
-
-install-mlx: ## Install with MLX support (macOS Apple Silicon)
-	$(PIP) install ".[mlx]"
 
 update: ## Pull latest from GitHub and reinstall
 	git pull origin main

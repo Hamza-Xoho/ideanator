@@ -31,11 +31,11 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "rich>=13.0",
+    "textual>=0.50",
+    "mlx-lm>=0.1",
 ]
 
 [project.optional-dependencies]
-mlx = ["mlx-lm>=0.1"]
-tui = ["textual>=0.50"]
 dev = [
     "pytest>=7.0",
     "pytest-cov",

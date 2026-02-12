@@ -20,6 +20,8 @@ from ideanator.config import (
 from ideanator.exceptions import IdeanatorError, ServerError
 from ideanator.llm import OpenAILocalClient, create_server, preflight_check
 from ideanator.pipeline import run_arise_for_idea, run_arise_interactive
+from ideanator.tui.app import main as tui_main
+from ideanator.tui.screens.settings import AppSettings
 
 console = Console()
 
@@ -156,20 +158,8 @@ def _launch_tui(
 ) -> None:
     """Launch the Textual-based Terminal UI.
 
-    Called when ``ideanator --tui`` is used.  Textual is imported lazily so
-    the base package works without it installed.
+    Called when ``ideanator --tui`` is used.
     """
-    try:
-        from ideanator.tui.app import main as tui_main
-        from ideanator.tui.screens.settings import AppSettings
-    except ImportError:
-        click.echo(
-            "Error: The TUI requires the 'textual' package.\n"
-            "Install it with:  pip install \"ideanator[tui]\"",
-            err=True,
-        )
-        sys.exit(1)
-
     backend = _resolve_backend(use_mlx, use_ollama, use_external, no_server)
     settings = AppSettings(
         backend=backend,

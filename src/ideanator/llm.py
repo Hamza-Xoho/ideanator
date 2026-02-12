@@ -187,7 +187,7 @@ class MLXServer:
             )
         except FileNotFoundError:
             raise ServerError(
-                "MLX not found. Install: pip install mlx-lm"
+                "MLX LM server binary not found. Ensure mlx-lm is correctly installed."
             )
 
         start_time = time.time()

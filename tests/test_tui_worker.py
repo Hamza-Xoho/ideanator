@@ -1,7 +1,6 @@
 """Tests for PipelineWorker and BatchPipelineWorker.
 
 Focuses on thread synchronization, callback routing, and error handling.
-Skipped entirely if textual is not installed.
 """
 
 from __future__ import annotations
@@ -14,19 +13,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-try:
-    from ideanator.tui.worker import PipelineWorker, BatchPipelineWorker
-    from ideanator.tui.messages import (
-        PipelineError,
-        PipelineStatus,
-        UserPromptRequested,
-    )
-
-    HAS_TEXTUAL = True
-except ImportError:
-    HAS_TEXTUAL = False
-
-pytestmark = pytest.mark.skipif(not HAS_TEXTUAL, reason="textual not installed")
+from ideanator.tui.worker import PipelineWorker, BatchPipelineWorker
+from ideanator.tui.messages import (
+    PipelineError,
+    PipelineStatus,
+    UserPromptRequested,
+)
 
 
 class TestPipelineWorkerSync:
