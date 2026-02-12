@@ -1,0 +1,330 @@
+/* ── Global ────────────────────────────────────────── */
+
+Screen {
+    background: $surface;
+}
+
+/* ── Welcome Screen ───────────────────────────────── */
+
+#welcome-panel {
+    width: 56;
+    height: auto;
+    padding: 2 4;
+    border: tall $primary;
+    background: $panel;
+    margin: 2 0;
+}
+
+#welcome-title {
+    text-align: center;
+    text-style: bold;
+    color: $text;
+    padding: 1 0 0 0;
+    width: 100%;
+}
+
+#welcome-subtitle {
+    text-align: center;
+    color: $text-muted;
+    padding: 0 0 2 0;
+    width: 100%;
+}
+
+#start-btn {
+    margin: 1 0 0 0;
+    width: 100%;
+}
+
+#batch-btn {
+    width: 100%;
+}
+
+#settings-btn {
+    width: 100%;
+}
+
+/* ── Idea Input Screen ────────────────────────────── */
+
+#idea-panel {
+    width: 80;
+    height: auto;
+    padding: 2 4;
+    border: tall $primary;
+    background: $panel;
+    margin: 2 0;
+}
+
+#idea-prompt {
+    text-style: bold;
+    padding: 1 0;
+    width: 100%;
+}
+
+#idea-hint {
+    color: $text-muted;
+    padding: 0 0 1 0;
+    width: 100%;
+}
+
+#idea-text {
+    height: 12;
+    margin: 1 0;
+}
+
+#submit-btn {
+    width: 100%;
+}
+
+/* ── Pipeline Screen — Messaging Layout ───────────── */
+
+#chat-wrapper {
+    height: 1fr;
+}
+
+#chat-topbar {
+    height: auto;
+    dock: top;
+    padding: 0 1;
+    background: $surface-darken-1;
+    min-height: 3;
+}
+
+PhaseIndicator {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    padding: 1 1;
+}
+
+DimensionTracker {
+    width: auto;
+    height: auto;
+    min-height: 3;
+    padding: 1 1;
+    content-align-vertical: middle;
+}
+
+ConversationView {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#input-bar {
+    height: auto;
+    dock: bottom;
+    padding: 0 1 1 1;
+}
+
+#user-input {
+    width: 1fr;
+}
+
+#user-input:disabled {
+    opacity: 0.4;
+}
+
+/* ── Batch status bar ─────────────────────────────── */
+
+#batch-status-bar {
+    height: auto;
+    dock: bottom;
+    padding: 1 2;
+    background: $surface-darken-1;
+}
+
+#batch-status-text {
+    color: $text-muted;
+    text-style: italic;
+    width: 100%;
+}
+
+/* ── Message Bubbles ──────────────────────────────── */
+
+MessageBubble {
+    width: 100%;
+    height: auto;
+    margin: 1 0 0 0;
+    padding: 0 1;
+}
+
+.bubble-interviewer {
+    background: $primary-darken-3;
+    margin: 1 12 0 0;
+    padding: 1 2;
+    border: round $primary-darken-2;
+}
+
+.bubble-user {
+    background: $success-darken-3;
+    margin: 1 0 0 12;
+    padding: 1 2;
+    border: round $success-darken-2;
+}
+
+.bubble-simulated {
+    background: $warning-darken-3;
+    margin: 1 0 0 12;
+    padding: 1 2;
+    border: round $warning-darken-2;
+}
+
+.bubble-sender {
+    text-style: bold;
+    color: $text;
+    margin: 0 0 0 0;
+}
+
+.bubble-body {
+    color: $text;
+    margin: 0;
+}
+
+/* ── Phase Headers (in conversation) ──────────────── */
+
+PhaseHeader {
+    width: 100%;
+    height: auto;
+    margin: 2 0 1 0;
+    padding: 0 2;
+    text-align: center;
+}
+
+.phase-label-text {
+    text-align: center;
+    color: $primary-lighten-2;
+    text-style: bold;
+    width: 100%;
+}
+
+/* ── Status Lines ─────────────────────────────────── */
+
+StatusLine {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 0 2;
+}
+
+.status-info .status-text {
+    color: $text-muted;
+}
+
+.status-warning .status-text {
+    color: $warning;
+}
+
+.status-error .status-text {
+    color: $error;
+    text-style: bold;
+}
+
+/* ── Settings Screen ──────────────────────────────── */
+
+#settings-scroll {
+    width: 1fr;
+    height: 1fr;
+    align-horizontal: center;
+}
+
+#settings-panel {
+    width: 72;
+    height: auto;
+    padding: 2 4;
+    border: tall $primary;
+    background: $panel;
+    margin: 1 0;
+}
+
+#settings-title {
+    text-align: center;
+    text-style: bold;
+    color: $text;
+    padding: 1 0 1 0;
+    width: 100%;
+}
+
+.section-label {
+    padding: 1 0 0 0;
+    color: $text;
+    text-style: bold;
+}
+
+.section-hint {
+    color: $text-muted;
+    padding: 0 0 0 0;
+}
+
+.section-divider {
+    margin: 1 0 0 0;
+}
+
+#backend-radio {
+    margin: 0 0 1 0;
+}
+
+#verbose-check {
+    margin: 1 0 0 0;
+}
+
+.field-row {
+    height: auto;
+    margin: 0;
+}
+
+.field-label {
+    width: 20;
+    padding: 1 1 0 0;
+    color: $text-muted;
+}
+
+.field-row Input {
+    width: 1fr;
+}
+
+#settings-actions {
+    height: auto;
+    align-horizontal: center;
+    padding: 2 0 1 0;
+}
+
+#settings-actions Button {
+    margin: 0 1;
+}
+
+/* ── Synthesis Screen ─────────────────────────────── */
+
+#synthesis-panel {
+    height: 1fr;
+    padding: 2;
+}
+
+#synthesis-title {
+    text-style: bold;
+    text-align: center;
+    padding: 1 0;
+    width: 100%;
+}
+
+#synthesis-meta {
+    text-align: center;
+    color: $text-muted;
+    padding: 0 0 1 0;
+    width: 100%;
+}
+
+#synthesis-content {
+    height: 1fr;
+    border: tall $primary;
+    padding: 1;
+    margin: 1 0;
+}
+
+#synthesis-actions {
+    height: auto;
+    align-horizontal: center;
+    padding: 1 0;
+}
+
+#synthesis-actions Button {
+    margin: 0 1;
+}

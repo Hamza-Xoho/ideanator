@@ -56,6 +56,11 @@ class TestCLIHelp:
         assert "11434" in result.output
         assert "8080" in result.output
 
+    def test_help_shows_tui_option(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["--help"])
+        assert "--tui" in result.output
+
     def test_help_shows_input_format(self):
         runner = CliRunner()
         result = runner.invoke(main, ["--help"])

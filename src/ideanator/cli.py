@@ -66,6 +66,7 @@ class IdeanatorCommand(click.Command):
         formatter.write("    -f, --file PATH     Batch mode: process ideas from a JSON file\n")
         formatter.write("    -o, --output PATH   Save results to a JSON file\n")
         formatter.write("    -v, --verbose       Show debug logs\n")
+        formatter.write("    --tui               Launch the Terminal UI\n")
         formatter.write("    --version           Show version\n")
         formatter.write("    --help              Show this help\n")
         formatter.write("\n")
@@ -82,6 +83,12 @@ class IdeanatorCommand(click.Command):
         formatter.write("    Batch (process a file of ideas with simulated responses):\n")
         formatter.write("      ideanator --ollama -f ideas.json -o results.json\n")
         formatter.write("      ideanator --mlx -f ideas.json\n")
+        formatter.write("\n")
+        formatter.write("    Terminal UI (full-screen TUI with conversation view):\n")
+        formatter.write("      ideanator --tui\n")
+        formatter.write("      ideanator --tui --ollama -m qwen2.5:7b-instruct\n")
+        formatter.write("      ideanator --tui --external --server-url http://localhost:1234/v1\n")
+        formatter.write("      ideanator --tui --ollama -f ideas.json -o results.json\n")
         formatter.write("\n")
 
         # Backend defaults
@@ -132,6 +139,49 @@ def _resolve_backend(
     return Backend.OLLAMA
 
 
+# ── TUI launcher ─────────────────────────────────────────────────────
+
+
+def _launch_tui(
+    *,
+    use_ollama: bool,
+    use_mlx: bool,
+    use_external: bool,
+    no_server: bool,
+    model: str | None,
+    server_url: str | None,
+    file_path: str | None,
+    output_path: str | None,
+    verbose: bool,
+) -> None:
+    """Launch the Textual-based Terminal UI.
+
+    Called when ``ideanator --tui`` is used.  Textual is imported lazily so
+    the base package works without it installed.
+    """
+    try:
+        from ideanator.tui.app import main as tui_main
+        from ideanator.tui.screens.settings import AppSettings
+    except ImportError:
+        click.echo(
+            "Error: The TUI requires the 'textual' package.\n"
+            "Install it with:  pip install \"ideanator[tui]\"",
+            err=True,
+        )
+        sys.exit(1)
+
+    backend = _resolve_backend(use_mlx, use_ollama, use_external, no_server)
+    settings = AppSettings(
+        backend=backend,
+        model=model or "",
+        server_url=server_url or "",
+        batch_file=file_path or "",
+        output_file=output_path or DEFAULT_OUTPUT_FILE,
+        verbose=verbose,
+    )
+    tui_main(settings=settings)
+
+
 # ── Main command ──────────────────────────────────────────────────────
 
 
@@ -154,6 +204,8 @@ def _resolve_backend(
               help="Output path for results JSON.")
 @click.option("-v", "--verbose", is_flag=True,
               help="Enable verbose debug logging.")
+@click.option("--tui", "use_tui", is_flag=True,
+              help="Launch the Terminal UI instead of the CLI.")
 @click.version_option(package_name="ideanator")
 def main(
     use_ollama: bool,
@@ -165,12 +217,28 @@ def main(
     file_path: str | None,
     output_path: str | None,
     verbose: bool,
+    use_tui: bool,
 ) -> None:
     """ideanator — develop vague ideas through the ARISE questioning pipeline."""
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.WARNING,
         format="%(levelname)s: %(message)s",
     )
+
+    # TUI early dispatch — before backend resolution / server creation
+    if use_tui:
+        _launch_tui(
+            use_ollama=use_ollama,
+            use_mlx=use_mlx,
+            use_external=use_external,
+            no_server=no_server,
+            model=model,
+            server_url=server_url,
+            file_path=file_path,
+            output_path=output_path,
+            verbose=verbose,
+        )
+        return
 
     # Resolve backend
     try:

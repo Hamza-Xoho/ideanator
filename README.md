@@ -17,6 +17,7 @@ Works with **Ollama** (Linux, macOS, Windows), **MLX** (macOS + Apple Silicon), 
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Interactive mode](#interactive-mode-default)
+  - [Terminal UI (TUI)](#terminal-ui-tui)
   - [Batch mode](#batch-mode)
   - [Model selection](#model-selection)
   - [All options](#all-options)
@@ -127,6 +128,12 @@ pipx install git+https://github.com/Hamza-Xoho/ideanatorCLI.git
 
 # Using pip
 pip install git+https://github.com/Hamza-Xoho/ideanatorCLI.git
+```
+
+### With Terminal UI support
+
+```bash
+pip install "ideanator[tui] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
 ```
 
 ### With MLX support (macOS Apple Silicon)
@@ -240,6 +247,15 @@ pip install "ideanator[mlx] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git
 ideanator --mlx
 ```
 
+### With the Terminal UI
+
+```bash
+pip install "ideanator[tui] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
+ideanator --tui
+```
+
+The TUI provides a full-screen messaging-style interface with a conversation view, phase indicators, dimension tracking, and a settings screen — all from your terminal.
+
 ### With any running server
 
 ```bash
@@ -259,6 +275,26 @@ ideanator --ollama
 ideanator --ollama -m qwen2.5:7b-instruct
 ideanator --external --server-url http://localhost:1234/v1
 ```
+
+### Terminal UI (TUI)
+
+Launch the full-screen Terminal UI with `--tui`. It provides a messaging-style conversation view, real-time phase indicators, dimension tracking pills, and a settings screen — all within your terminal. Requires the `tui` extra (`pip install "ideanator[tui]"`).
+
+```bash
+# Launch with defaults
+ideanator --tui
+
+# Pre-configure backend and model
+ideanator --tui --ollama -m qwen2.5:7b-instruct
+
+# Use an external server
+ideanator --tui --external --server-url http://localhost:1234/v1
+
+# Batch mode in the TUI
+ideanator --tui --ollama -f ideas.json -o results.json
+```
+
+CLI flags like `--ollama`, `-m`, `--server-url`, `-f`, and `-o` pre-populate the TUI's Settings screen. You can still change them in the TUI before starting the pipeline.
 
 ### Batch mode
 
@@ -311,6 +347,7 @@ OPTIONS
   -f, --file PATH     Batch mode: process ideas from a JSON file
   -o, --output PATH   Save results to a JSON file
   -v, --verbose       Show debug logs
+  --tui               Launch the Terminal UI
   --version           Show version
   --help              Show this help
 ```
@@ -450,7 +487,7 @@ Each phase has 2-3 few-shot examples in the `example_pool` section of `prompts.y
 
 ## Running Tests
 
-All 205 tests run without a server — the entire pipeline is tested through `MockLLMClient`.
+All tests run without a server — the entire pipeline is tested through `MockLLMClient`. TUI tests are automatically skipped if textual is not installed.
 
 ```bash
 # Using Make (recommended)
@@ -498,6 +535,27 @@ ideanatorCLI/
 │   ├── llm.py                        # LLMClient protocol + server managers
 │   ├── cli.py                        # Click entry point + rich error handling
 │   │
+│   ├── tui/                          # Terminal UI (optional, requires textual)
+│   │   ├── __init__.py               # Subpackage marker
+│   │   ├── app.py                    # Textual App — screen routing + entry point
+│   │   ├── worker.py                 # Background pipeline runners (interactive + batch)
+│   │   ├── messages.py               # Custom Textual Message classes for pipeline events
+│   │   ├── theme.tcss                # Textual CSS theme
+│   │   ├── screens/
+│   │   │   ├── __init__.py
+│   │   │   ├── welcome.py            # Welcome / main menu screen
+│   │   │   ├── idea_input.py         # Full-screen idea text entry
+│   │   │   ├── settings.py           # Settings form (mirrors CLI flags)
+│   │   │   ├── pipeline.py           # Interactive pipeline conversation view
+│   │   │   ├── batch_pipeline.py     # Batch pipeline processing view
+│   │   │   └── synthesis.py          # Final results display + save
+│   │   └── widgets/
+│   │       ├── __init__.py
+│   │       ├── conversation_view.py  # Scrollable chat feed
+│   │       ├── message_bubble.py     # Chat bubble + status line widgets
+│   │       ├── phase_indicator.py    # Phase progress dots
+│   │       └── dimension_tracker.py  # Dimension coverage pills
+│   │
 │   └── data/                         # Runtime data files (bundled in wheel)
 │       ├── prompts.yaml              # ARISE questioning prompts
 │       └── prompts/                  # Three-stage refactoring engine configs
@@ -516,13 +574,23 @@ ideanatorCLI/
     ├── test_pipeline.py              # End-to-end pipeline integration (10 tests)
     ├── test_prompts.py               # YAML content integrity (23 tests)
     ├── test_refactor.py              # Refactoring engine: models, stages, status (29 tests)
-    └── test_scorer.py                # Vagueness scoring + safety net (8 tests)
+    ├── test_scorer.py                # Vagueness scoring + safety net (8 tests)
+    ├── test_tui.py                   # --tui CLI flag dispatch + forwarding (12 tests)
+    ├── test_tui_settings.py          # AppSettings defaults + import isolation (6 tests)
+    ├── test_tui_messages.py          # TUI Message classes carry correct data (12 tests)
+    └── test_tui_worker.py            # Worker sync, callbacks, batch error handling (10 tests)
 ```
 
 ### Data flow
 
 ```
 CLI (cli.py)
+ │
+ ├─ --tui? ──► TUI (tui/app.py)
+ │              ├─ Welcome → Settings → Idea Input → Pipeline → Synthesis
+ │              ├─ Workers run pipeline in background thread
+ │              ├─ Messages bridge thread ↔ Textual event loop
+ │              └─► Same PIPELINE below
  │
  ├─ Resolve backend (--ollama / --mlx / --external)
  ├─ Get BackendConfig (model, URL, needs_server)
@@ -961,7 +1029,7 @@ This format is important — subsequent phases receive the full conversation log
 
 ### Testing strategy
 
-The test suite (205 tests) runs entirely without a server. The `MockLLMClient` in `conftest.py` cycles through a list of predetermined responses:
+The test suite runs entirely without a server. TUI-specific tests use `pytest.mark.skipif` so the suite passes when textual is not installed. The `MockLLMClient` in `conftest.py` cycles through a list of predetermined responses:
 
 ```python
 class MockLLMClient:
@@ -997,6 +1065,10 @@ Test coverage by module:
 | `test_backends.py` | 16 | Backend enum, config defaults, server factory, init behavior |
 | `test_pipeline.py` | 10 | End-to-end: phase counts, synthesis, refactored output, validation, exploration status, generic flags |
 | `test_scorer.py` | 8 | All-missing, none-missing, safety net, partial dimensions, temperature/tokens |
+| `test_tui.py` | 12 | `--tui` flag dispatch, flag forwarding, no interference with normal CLI |
+| `test_tui_settings.py` | 6 | AppSettings defaults/overrides, import isolation (no textual side-effects) |
+| `test_tui_messages.py` | 12 | All 12 Message classes carry correct data attributes |
+| `test_tui_worker.py` | 10 | Worker sync, callback routing, batch file validation + error handling |
 
 The `_clear_caches` autouse fixture ensures the YAML cache, refactoring config cache, and settings singleton are reset between tests, preventing test pollution.
 
