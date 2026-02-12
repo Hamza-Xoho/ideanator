@@ -291,6 +291,50 @@ StatusLine {
     margin: 0 1;
 }
 
+/* ── Batch Setup Screen ──────────────────────────── */
+
+#batch-setup-panel {
+    width: 72;
+    height: auto;
+    padding: 2 4;
+    border: tall $primary;
+    background: $panel;
+    margin: 2 0;
+}
+
+#batch-setup-title {
+    text-align: center;
+    text-style: bold;
+    color: $text;
+    padding: 1 0 1 0;
+    width: 100%;
+}
+
+#batch-setup-hint {
+    color: $text-muted;
+    padding: 0 0 1 0;
+    width: 100%;
+}
+
+#batch-format-hint {
+    color: $text-muted;
+    padding: 1 2;
+    margin: 1 0;
+    background: $surface-darken-1;
+    border: round $primary-darken-2;
+    width: 100%;
+}
+
+#batch-setup-actions {
+    height: auto;
+    align-horizontal: center;
+    padding: 2 0 1 0;
+}
+
+#batch-setup-actions Button {
+    margin: 0 1;
+}
+
 /* ── Synthesis Screen ─────────────────────────────── */
 
 #synthesis-panel {

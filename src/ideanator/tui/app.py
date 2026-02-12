@@ -10,6 +10,7 @@ from ideanator.config import DEFAULT_OUTPUT_FILE
 from ideanator.types import IdeaResult
 
 from ideanator.tui.screens.batch_pipeline import BatchPipelineScreen
+from ideanator.tui.screens.batch_setup import BatchSetupScreen
 from ideanator.tui.screens.idea_input import IdeaInputScreen
 from ideanator.tui.screens.pipeline import PipelineScreen
 from ideanator.tui.screens.settings import AppSettings, SettingsScreen
@@ -86,23 +87,27 @@ class IdeanatorApp(App):
     # ── Batch mode ────────────────────────────────────────────
 
     def _start_batch(self) -> None:
-        """Launch the batch pipeline, or show an error if no file is set."""
-        file_path = self._settings.batch_file
-        if not file_path:
-            self.notify(
-                "Set a batch file path in Settings first  (-f, --file).",
-                title="No batch file",
-                severity="warning",
-            )
+        """Push the batch setup screen so the user can specify paths."""
+        self.push_screen(
+            BatchSetupScreen(self._settings),
+            callback=self._on_batch_setup_done,
+        )
+
+    def _on_batch_setup_done(self, result: dict | None) -> None:
+        """Batch setup dismissed — launch pipeline or return to welcome."""
+        if result is None:
+            # User cancelled — back to welcome
             self.push_screen(WelcomeScreen(), callback=self._on_welcome_done)
             return
 
-        output_path = self._settings.output_file or DEFAULT_OUTPUT_FILE
+        # Persist the paths the user entered
+        self._settings.batch_file = result["input_path"]
+        self._settings.output_file = result["output_path"]
 
         self.push_screen(
             BatchPipelineScreen(
-                file_path=file_path,
-                output_path=output_path,
+                file_path=result["input_path"],
+                output_path=result["output_path"],
                 backend=self._settings.backend,
                 model=self._settings.model,
                 server_url=self._settings.server_url,
