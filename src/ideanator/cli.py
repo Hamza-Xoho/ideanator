@@ -20,8 +20,6 @@ from ideanator.config import (
 from ideanator.exceptions import IdeanatorError, ServerError
 from ideanator.llm import OpenAILocalClient, create_server, preflight_check
 from ideanator.pipeline import run_arise_for_idea, run_arise_interactive
-from ideanator.tui.app import main as tui_main
-from ideanator.tui.screens.settings import AppSettings
 
 console = Console()
 
@@ -158,8 +156,12 @@ def _launch_tui(
 ) -> None:
     """Launch the Textual-based Terminal UI.
 
-    Called when ``ideanator --tui`` is used.
+    Called when ``ideanator --tui`` is used.  Textual is imported here
+    rather than at module level to keep CLI startup fast.
     """
+    from ideanator.tui.app import main as tui_main
+    from ideanator.tui.screens.settings import AppSettings
+
     backend = _resolve_backend(use_mlx, use_ollama, use_external, no_server)
     settings = AppSettings(
         backend=backend,
