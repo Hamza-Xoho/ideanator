@@ -1,10 +1,14 @@
-"""Shared data structures for the ARISE pipeline."""
+"""Core data structures for the ARISE pipeline.
+
+All types use Pydantic for validation and serialization.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class Phase(str, Enum):
@@ -52,11 +56,10 @@ PHASE_LABELS: dict[Phase, str] = {
 }
 
 
-@dataclass
-class DimensionCoverage:
+class DimensionCoverage(BaseModel):
     """Tracks which of the 6 dimensions are covered vs missing."""
 
-    coverage: dict[Dimension, bool] = field(
+    coverage: dict[Dimension, bool] = Field(
         default_factory=lambda: {d: True for d in Dimension}
     )
 
@@ -79,8 +82,7 @@ class DimensionCoverage:
             self.coverage[d] = True
 
 
-@dataclass
-class ParsedResponse:
+class ParsedResponse(BaseModel):
     """Structured output from parsing an ARISE phase response."""
 
     reflection: str = ""
@@ -90,8 +92,7 @@ class ParsedResponse:
     clean: str = ""
 
 
-@dataclass
-class GenericFlag:
+class GenericFlag(BaseModel):
     """Records a question flagged as too generic."""
 
     phase: str
@@ -99,26 +100,26 @@ class GenericFlag:
     flag: str = "GENERIC — could apply to any idea"
 
 
-@dataclass
-class ConversationTurn:
+class ConversationTurn(BaseModel):
     """A single turn in the ARISE conversation."""
 
     phase: str
     role: str  # "interviewer" or "user_simulated"
     content: str
-    parsed: Optional[ParsedResponse] = None
+    parsed: ParsedResponse | None = None
 
 
-@dataclass
-class IdeaResult:
+class IdeaResult(BaseModel):
     """Complete result of running the ARISE pipeline for one idea."""
 
     original_idea: str
     timestamp: str
-    vagueness_assessment: dict
+    vagueness_assessment: dict[str, Any] = Field(default_factory=dict)
     phases_executed: list[str]
     conversation: list[ConversationTurn]
-    generic_flags: list[GenericFlag]
+    generic_flags: list[GenericFlag] = Field(default_factory=list)
     synthesis: str
     # Three-stage refactoring output (populated when refactoring engine runs)
-    refactored: object | None = None  # RefactoredIdea (avoids circular import)
+    refactored: Any = None
+
+    model_config = {"arbitrary_types_allowed": True}

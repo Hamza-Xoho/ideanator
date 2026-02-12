@@ -10,6 +10,9 @@ Works with **Ollama** (Linux, macOS, Windows), **MLX** (macOS + Apple Silicon), 
 
 - [What it does](#what-it-does)
 - [Installation](#installation)
+  - [Quick install](#quick-install-recommended)
+  - [Updating](#updating)
+  - [Uninstalling](#uninstalling)
 - [Recommended Models](#recommended-models)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
@@ -114,10 +117,56 @@ After all phases complete, the refactoring engine produces a structured output:
 
 ## Installation
 
+### Quick install (recommended)
+
+Install directly from GitHub — no git clone needed:
+
 ```bash
-git clone https://github.com/your-username/ideanator.git
-cd ideanator
-pip install -e ".[dev]"
+# Using pipx (recommended — installs in an isolated environment)
+pipx install git+https://github.com/Hamza-Xoho/ideanatorCLI.git
+
+# Using pip
+pip install git+https://github.com/Hamza-Xoho/ideanatorCLI.git
+```
+
+### With MLX support (macOS Apple Silicon)
+
+```bash
+pip install "ideanator[mlx] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
+```
+
+### Development install
+
+```bash
+git clone https://github.com/Hamza-Xoho/ideanatorCLI.git
+cd ideanatorCLI
+make install-dev    # or: pip install -e ".[dev]"
+```
+
+### Updating
+
+```bash
+# pipx
+pipx upgrade ideanator
+
+# pip
+pip install --upgrade git+https://github.com/Hamza-Xoho/ideanatorCLI.git
+
+# Development (from cloned repo)
+make update         # or: git pull origin main && pip install .
+```
+
+### Uninstalling
+
+```bash
+# pipx
+pipx uninstall ideanator
+
+# pip
+pip uninstall ideanator
+
+# Development (from cloned repo)
+make uninstall
 ```
 
 **Requirements:**
@@ -127,7 +176,7 @@ pip install -e ".[dev]"
 | Backend | Platform | Install |
 |---------|----------|---------|
 | **Ollama** | Linux, macOS, Windows | [ollama.com](https://ollama.com) |
-| **MLX** | macOS (Apple Silicon) | `pip install -e ".[mlx]"` |
+| **MLX** | macOS (Apple Silicon) | See "With MLX support" above |
 | **External** | Any | Any OpenAI-compatible server |
 
 ---
@@ -187,7 +236,7 @@ ideanator will automatically start the Ollama daemon, pull the model, and begin 
 ### With MLX (macOS + Apple Silicon)
 
 ```bash
-pip install -e ".[mlx]"
+pip install "ideanator[mlx] @ git+https://github.com/Hamza-Xoho/ideanatorCLI.git"
 ideanator --mlx
 ```
 
@@ -373,9 +422,9 @@ If confidence falls below 0.8, the critique is fed back to Stage 2 for revision 
 
 ## Prompt Customization
 
-Prompts are split across two locations:
+Prompts are bundled inside the package at `src/ideanator/data/`:
 
-**`prompts.yaml`** (project root) — The ARISE questioning prompts, simulated user prompt, legacy synthesis prompt, and few-shot example pool. Edit this file to modify questioning behavior without touching code. Uses Python `str.format()` placeholders:
+**`data/prompts.yaml`** — The ARISE questioning prompts, simulated user prompt, legacy synthesis prompt, and few-shot example pool. Edit this file to modify questioning behavior without touching code. Uses Python `str.format()` placeholders:
 
 | Placeholder | Description | Used in |
 |-------------|-------------|---------|
@@ -385,13 +434,13 @@ Prompts are split across two locations:
 | `{conversation}` | Full conversation log so far | Reveal, Imagine, Scope, Synthesis |
 | `{original_idea}` | The user's original idea text | Simulated user prompt |
 
-**`prompts/`** directory — The three-stage refactoring engine configs. Each YAML file specifies the system prompt, user template, model settings (temperature, max_tokens), and anti-patterns:
+**`data/prompts/`** directory — The three-stage refactoring engine configs. Each YAML file specifies the system prompt, user template, model settings (temperature, max_tokens), and anti-patterns:
 
 | File | Stage | Temperature | Tokens | Purpose |
 |------|-------|-------------|--------|---------|
-| `prompts/extract.yml` | Extract | 0.3 | 800 | Parse conversation into structured dimensions |
-| `prompts/synthesize.yml` | Synthesize | 0.5 | 600 | Chain-of-density synthesis with banned words |
-| `prompts/validate.yml` | Validate | 0.2 | 600 | Faithfulness, completeness, sycophancy checks |
+| `data/prompts/extract.yml` | Extract | 0.3 | 800 | Parse conversation into structured dimensions |
+| `data/prompts/synthesize.yml` | Synthesize | 0.5 | 600 | Chain-of-density synthesis with banned words |
+| `data/prompts/validate.yml` | Validate | 0.2 | 600 | Faithfulness, completeness, sycophancy checks |
 
 The `synthesize.yml` file contains the banned-words list under `anti_patterns.banned_phrases`. Add or remove phrases without touching any code.
 
@@ -401,13 +450,17 @@ Each phase has 2-3 few-shot examples in the `example_pool` section of `prompts.y
 
 ## Running Tests
 
-All 162 tests run without a server — the entire pipeline is tested through `MockLLMClient`.
+All 205 tests run without a server — the entire pipeline is tested through `MockLLMClient`.
 
 ```bash
-# Run all tests
-pytest
+# Using Make (recommended)
+make test           # Run all tests
+make test-cov       # Run with coverage report
+make lint           # Run ruff linter
+make typecheck      # Run mypy
 
-# Run with coverage
+# Or directly
+pytest tests/ -v
 pytest --cov=ideanator
 
 # Run a specific test file
@@ -428,18 +481,14 @@ pytest tests/test_pipeline.py::TestRunAriseForIdea -v
 ```
 ideanatorCLI/
 ├── pyproject.toml                    # Build config, deps, entry point
-├── prompts.yaml                      # ARISE questioning prompts (externalized)
-│
-├── prompts/                          # Three-stage refactoring engine configs
-│   ├── extract.yml                   # Stage 1: structured extraction prompt
-│   ├── synthesize.yml                # Stage 2: chain-of-density synthesis + banned words
-│   └── validate.yml                  # Stage 3: faithfulness/completeness/sycophancy checks
+├── Makefile                          # Install, test, lint, update, uninstall
 │
 ├── src/ideanator/
 │   ├── __init__.py                   # Package version
-│   ├── types.py                      # Enums, dataclasses, mappings
+│   ├── exceptions.py                 # Custom exception hierarchy
+│   ├── types.py                      # Pydantic BaseModel types + enums
 │   ├── models.py                     # Pydantic models for refactoring pipeline
-│   ├── config.py                     # Backend configs, temperature/token strategies
+│   ├── config.py                     # Pydantic Settings + backend configs
 │   ├── prompts.py                    # YAML loader with LRU cache
 │   ├── scorer.py                     # Inverted vagueness assessment
 │   ├── phases.py                     # Phase selection + prompt template builder
@@ -447,18 +496,27 @@ ideanatorCLI/
 │   ├── pipeline.py                   # ARISE orchestration + refactoring engine integration
 │   ├── refactor.py                   # Three-stage refactoring engine (extract/synthesize/validate)
 │   ├── llm.py                        # LLMClient protocol + server managers
-│   └── cli.py                        # Click entry point + dispatch
+│   ├── cli.py                        # Click entry point + rich error handling
+│   │
+│   └── data/                         # Runtime data files (bundled in wheel)
+│       ├── prompts.yaml              # ARISE questioning prompts
+│       └── prompts/                  # Three-stage refactoring engine configs
+│           ├── extract.yml           # Stage 1: structured extraction prompt
+│           ├── synthesize.yml        # Stage 2: chain-of-density synthesis + banned words
+│           └── validate.yml          # Stage 3: faithfulness/completeness/sycophancy checks
 │
 └── tests/
     ├── conftest.py                   # MockLLMClient + shared fixtures
     ├── test_backends.py              # Backend enum, config, server factory (16 tests)
-    ├── test_cli.py                   # CLI flags, help, batch/interactive (25 tests)
-    ├── test_parser.py                # Response parsing + generic detection (13 tests)
-    ├── test_scorer.py                # Vagueness scoring + safety net (8 tests)
-    ├── test_phases.py                # Phase determination + prompt building (14 tests)
-    ├── test_prompts.py               # YAML content integrity (18 tests)
-    ├── test_pipeline.py              # End-to-end pipeline integration (11 tests)
-    └── test_refactor.py              # Refactoring engine: models, stages, status (26 tests)
+    ├── test_cli.py                   # CLI flags, help, batch/interactive (30 tests)
+    ├── test_config.py                # Pydantic settings, validation, env vars (25 tests)
+    ├── test_exceptions.py            # Custom exception hierarchy (18 tests)
+    ├── test_parser.py                # Response parsing + generic detection (29 tests)
+    ├── test_phases.py                # Phase determination + prompt building (17 tests)
+    ├── test_pipeline.py              # End-to-end pipeline integration (10 tests)
+    ├── test_prompts.py               # YAML content integrity (23 tests)
+    ├── test_refactor.py              # Refactoring engine: models, stages, status (29 tests)
+    └── test_scorer.py                # Vagueness scoring + safety net (8 tests)
 ```
 
 ### Data flow
@@ -595,9 +653,25 @@ Enforces structural correctness between pipeline stages:
 | `parse_synthesis_output(raw)` | Parse 6-section output into `RefactoredIdea` |
 | `format_exploration_status(status)` | Format status with emoji labels for display |
 
+#### `exceptions.py` — Exception hierarchy
+
+All custom exceptions inherit from `IdeanatorError` for easy catching:
+
+| Exception | Purpose |
+|-----------|---------|
+| `IdeanatorError` | Base exception — catches all ideanator errors |
+| `ConfigurationError` | Configuration loading or validation failed |
+| `ServerError` | LLM server start/stop/communication failed |
+| `ValidationError` | Input validation failed |
+| `PromptLoadError` | Failed to load prompt templates |
+| `RefactoringError` | Refactoring pipeline failed |
+| `ParseError` | Failed to parse LLM response |
+
+Each exception carries a `message` and optional `details` dict for structured error context.
+
 #### `config.py` — Configuration system
 
-All configuration uses frozen (immutable) dataclasses:
+Configuration uses both frozen dataclasses (for immutable runtime config) and Pydantic Settings (for environment variable support with `IDEANATOR_*` prefix):
 
 ```python
 @dataclass(frozen=True)
@@ -709,7 +783,9 @@ Callable[[str, str], str | None]
 | **Context Manager** | `MLXServer`, `OllamaServer` | Automatic server start/stop lifecycle |
 | **Callback/Observer** | `pipeline.py` | Decouples CLI output from pipeline logic |
 | **Frozen Dataclass** | `config.py` | Prevents accidental config mutation mid-run |
-| **Pydantic Validation** | `models.py` | Structural correctness between pipeline stages |
+| **Pydantic Settings** | `config.py` | Environment variable support with `IDEANATOR_*` prefix |
+| **Exception Hierarchy** | `exceptions.py` | Structured error handling with context details |
+| **Pydantic Validation** | `models.py`, `types.py` | Structural correctness between pipeline stages |
 | **LRU Cache** | `prompts.py`, `refactor.py` | Single YAML read, cached for entire session |
 | **Template Method** | `phases.py` | Phase prompts follow consistent format pattern |
 | **Graceful Degradation** | `parser.py`, `refactor.py` | Falls back to raw text if parsing fails |
@@ -718,7 +794,7 @@ Callable[[str, str], str | None]
 
 ### Configuration system
 
-All configuration is centralized in `config.py` using frozen dataclasses. This prevents a common bug in LLM pipelines: accidentally mutating temperature or token limits during multi-phase execution.
+Configuration is centralized in `config.py` using frozen dataclasses for immutable runtime config and Pydantic Settings for environment variable support (`IDEANATOR_*` prefix, `.env` file loading). This prevents a common bug in LLM pipelines: accidentally mutating temperature or token limits during multi-phase execution.
 
 ```python
 # These are immutable — any attempt to modify raises AttributeError
@@ -754,7 +830,7 @@ class LLMClient(Protocol):
     ) -> str: ...
 ```
 
-Every module that talks to an LLM receives this protocol — never a concrete `OpenAI` instance. The real implementation (`OpenAILocalClient`) wraps the OpenAI Python client pointed at a local server. It catches all exceptions and returns `[ERROR: ...]` strings instead of crashing the pipeline.
+Every module that talks to an LLM receives this protocol — never a concrete `OpenAI` instance. The real implementation (`OpenAILocalClient`) wraps the OpenAI Python client pointed at a local server. On failure, it raises `ServerError` with structured details (backend, model, original error) instead of returning raw error strings.
 
 The OpenAI client is lazy-imported (only when `OpenAILocalClient` is instantiated), so importing `ideanator` doesn't require `openai` to be installed unless you actually use it.
 
@@ -885,7 +961,7 @@ This format is important — subsequent phases receive the full conversation log
 
 ### Testing strategy
 
-The test suite (162 tests) runs entirely without a server. The `MockLLMClient` in `conftest.py` cycles through a list of predetermined responses:
+The test suite (205 tests) runs entirely without a server. The `MockLLMClient` in `conftest.py` cycles through a list of predetermined responses:
 
 ```python
 class MockLLMClient:
@@ -911,16 +987,18 @@ Test coverage by module:
 
 | Module | Tests | What's verified |
 |--------|-------|----------------|
+| `test_cli.py` | 30 | Help output, flag resolution, batch/interactive modes, backend defaults + overrides |
+| `test_refactor.py` | 29 | Pydantic models, all three stages, exploration status, contradictions, output parsing, self-refine loop |
+| `test_parser.py` | 29 | Structured parsing, fallback behavior, generic detection, stop words |
+| `test_config.py` | 25 | Pydantic settings, backend config, environment variables, URL validation |
+| `test_prompts.py` | 23 | YAML integrity — all placeholders, format markers, dimensions, example structure |
+| `test_exceptions.py` | 18 | Custom exception hierarchy, message/details attributes, inheritance |
+| `test_phases.py` | 17 | Phase determination, example selection, prompt building, uncovered truncation |
 | `test_backends.py` | 16 | Backend enum, config defaults, server factory, init behavior |
-| `test_cli.py` | 25 | Help output, flag resolution, batch/interactive modes, backend defaults + overrides |
-| `test_parser.py` | 13 | Structured parsing, fallback behavior, generic detection, stop words |
+| `test_pipeline.py` | 10 | End-to-end: phase counts, synthesis, refactored output, validation, exploration status, generic flags |
 | `test_scorer.py` | 8 | All-missing, none-missing, safety net, partial dimensions, temperature/tokens |
-| `test_phases.py` | 14 | Phase determination, example selection, prompt building, uncovered truncation |
-| `test_prompts.py` | 18 | YAML integrity — all placeholders, format markers, dimensions, example structure |
-| `test_pipeline.py` | 11 | End-to-end: phase counts, synthesis, refactored output, validation, exploration status, generic flags |
-| `test_refactor.py` | 26 | Pydantic models, all three stages, exploration status, contradictions, output parsing, self-refine loop |
 
-The `_clear_prompt_cache` autouse fixture ensures both the YAML cache and refactoring config cache are reset between tests, preventing test pollution.
+The `_clear_caches` autouse fixture ensures the YAML cache, refactoring config cache, and settings singleton are reset between tests, preventing test pollution.
 
 ### Adding a new backend
 

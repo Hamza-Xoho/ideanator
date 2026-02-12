@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import random
 
 from ideanator.prompts import get_example_pool, get_phase_prompt_template
 from ideanator.types import Dimension, DimensionCoverage, Phase
+
+logger = logging.getLogger(__name__)
 
 
 def determine_phases(dims: DimensionCoverage) -> list[Phase]:
@@ -28,6 +31,7 @@ def determine_phases(dims: DimensionCoverage) -> list[Phase]:
 
     phases.append(Phase.SCOPE)  # ALWAYS: nobody states constraints in initial ideas
 
+    logger.debug("Determined phases: %s", [p.value for p in phases])
     return phases
 
 

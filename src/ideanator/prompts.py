@@ -10,8 +10,8 @@ import yaml
 
 
 def _default_prompts_path() -> Path:
-    """Return the default prompts.yaml path (project root)."""
-    return Path(__file__).resolve().parent.parent.parent / "prompts.yaml"
+    """Return the default prompts.yaml path (bundled with the package)."""
+    return Path(__file__).resolve().parent / "data" / "prompts.yaml"
 
 
 @lru_cache(maxsize=1)
@@ -25,6 +25,10 @@ def load_prompts(path: str | None = None) -> dict[str, Any]:
 def clear_cache() -> None:
     """Clear the prompt cache (useful for testing)."""
     load_prompts.cache_clear()
+
+
+# Alias for compatibility
+clear_prompts_cache = clear_cache
 
 
 def get_vagueness_prompt(prompts: dict | None = None) -> str:

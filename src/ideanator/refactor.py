@@ -36,7 +36,7 @@ from ideanator.types import (
 
 logger = logging.getLogger(__name__)
 
-_PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
+_PROMPTS_DIR = Path(__file__).resolve().parent / "data" / "prompts"
 
 # Maximum self-refine iterations before accepting result as-is
 _MAX_REFINE_ROUNDS = 2

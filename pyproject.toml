@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ideanator"
-version = "0.1.0"
+version = "0.2.0"
 description = "ARISE pipeline — develop vague ideas through structured questioning using a local LLM"
 readme = "README.md"
 license = "MIT"
@@ -29,6 +29,8 @@ dependencies = [
     "pyyaml>=6.0",
     "httpx>=0.24",
     "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +38,9 @@ mlx = ["mlx-lm>=0.1"]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "pytest-mock",
+    "ruff",
+    "mypy",
 ]
 
 [project.scripts]

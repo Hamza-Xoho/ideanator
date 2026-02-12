@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 from ideanator.config import TEMPERATURES, TOKENS, VAGUENESS_WORD_THRESHOLD
 from ideanator.llm import LLMClient
 from ideanator.prompts import get_vagueness_prompt
 from ideanator.types import Dimension, DimensionCoverage
+
+logger = logging.getLogger(__name__)
 
 
 def assess_vagueness(
@@ -46,6 +50,12 @@ def assess_vagueness(
     # (under word threshold), override to all-missing
     word_count = len(idea.split())
     if "NONE" in raw_upper and word_count < VAGUENESS_WORD_THRESHOLD:
+        logger.debug(
+            "Safety net triggered: NONE response for %d-word idea (threshold: %d)",
+            word_count,
+            VAGUENESS_WORD_THRESHOLD,
+        )
         dims.mark_all_missing()
 
+    logger.debug("Vagueness score: %s", dims.score_str)
     return dims, raw

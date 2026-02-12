@@ -31,13 +31,6 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, str], str | None]
 
-_ERROR_PREFIX = "[ERROR:"
-
-
-def _is_error(text: str) -> bool:
-    """Check if a response is an error string from the LLM client."""
-    return text.startswith(_ERROR_PREFIX)
-
 
 # ── Shared pipeline core ──────────────────────────────────────────────
 
@@ -65,10 +58,6 @@ def _run_arise_core(
 
     # Step 1: Vagueness Calibration
     dims, raw_score = assess_vagueness(client, idea)
-
-    if _is_error(raw_score):
-        _emit(callback, "status", f"Warning: Vagueness scoring failed — {raw_score}")
-
     uncovered = dims.uncovered_labels()
     phases = determine_phases(dims)
 
@@ -113,9 +102,6 @@ def _run_arise_core(
             temperature=TEMPERATURES.questioning,
             max_tokens=TOKENS.question,
         )
-
-        if _is_error(raw_response):
-            _emit(callback, "status", f"Warning: Phase {phase.value} failed — {raw_response}")
 
         parsed = parse_structured_response(raw_response)
         display_text = parsed.clean

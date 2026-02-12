@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from ideanator.config import reload_settings
 from ideanator.prompts import clear_cache
 from ideanator.refactor import clear_refactor_cache
 
@@ -174,8 +175,8 @@ def detailed_idea():
 
 
 @pytest.fixture(autouse=True)
-def _clear_prompt_cache():
-    """Clear all prompt caches before each test to ensure isolation."""
+def _clear_caches():
+    """Clear all caches before each test to ensure isolation."""
     clear_cache()
     clear_refactor_cache()
     yield

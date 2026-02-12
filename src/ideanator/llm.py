@@ -10,11 +10,14 @@ import time
 from typing import Protocol, runtime_checkable
 
 import httpx
+from rich.console import Console
 
 from ideanator.config import Backend, SERVER_STARTUP_TIMEOUT
+from ideanator.exceptions import ServerError
 from ideanator.parser import strip_thinking
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 
 @runtime_checkable
@@ -45,7 +48,7 @@ class OpenAILocalClient:
         model_id: str,
         timeout: float = 600.0,
         disable_thinking: bool = True,
-    ):
+    ) -> None:
         from openai import OpenAI
 
         self.client = OpenAI(
@@ -67,7 +70,7 @@ class OpenAILocalClient:
     ) -> str:
         import openai
 
-        extra_body = {}
+        extra_body: dict[str, str] = {}
         if self.disable_thinking and "ollama" in self.base_url.lower():
             extra_body["reasoning_effort"] = "none"
 
@@ -84,31 +87,48 @@ class OpenAILocalClient:
             )
         except openai.APIConnectionError:
             logger.error("Cannot connect to LLM server at %s", self.base_url)
-            return "[ERROR: Cannot connect to LLM server. Is it running?]"
+            raise ServerError(
+                f"Cannot connect to LLM server at {self.base_url}. Is it running?",
+                details={"url": self.base_url, "model": self.model_id},
+            )
         except openai.APITimeoutError:
             logger.error("LLM request timed out")
-            return "[ERROR: Request timed out. Model may be loading or overloaded.]"
+            raise ServerError(
+                "LLM request timed out. Model may be loading or overloaded.",
+                details={"url": self.base_url, "model": self.model_id},
+            )
         except openai.BadRequestError as e:
             logger.warning("Bad request: %s", e)
-            return f"[ERROR: {e}]"
+            raise ServerError(
+                f"Bad request to LLM: {e}",
+                details={"url": self.base_url, "model": self.model_id},
+            ) from e
         except openai.APIError as e:
             logger.warning("API error: %s", e)
-            return f"[ERROR: {e}]"
+            raise ServerError(
+                f"LLM API error: {e}",
+                details={"url": self.base_url, "model": self.model_id},
+            ) from e
 
         content = _extract_content(response)
-        return content if content else "[ERROR: Empty response from model]"
+        if not content:
+            raise ServerError(
+                "LLM returned empty response",
+                details={"url": self.base_url, "model": self.model_id},
+            )
+        return content
 
 
-def _extract_content(response) -> str:
+def _extract_content(response: object) -> str:
     """Defensively extract content from an OpenAI-compatible response.
 
     Checks for backend-specific reasoning fields and strips thinking
     blocks as a safety net.
     """
-    if not response.choices:
+    if not response.choices:  # type: ignore[union-attr]
         return ""
 
-    msg = response.choices[0].message
+    msg = response.choices[0].message  # type: ignore[union-attr]
     if msg is None:
         return ""
 
@@ -148,32 +168,38 @@ class ServerManager(Protocol):
 class MLXServer:
     """Context manager for MLX server lifecycle (macOS + Apple Silicon only)."""
 
-    def __init__(self, model_id: str, timeout: int = SERVER_STARTUP_TIMEOUT):
+    def __init__(self, model_id: str, timeout: int = SERVER_STARTUP_TIMEOUT) -> None:
         self.model_id = model_id
         self.timeout = timeout
-        self.process: subprocess.Popen | None = None
+        self.process: subprocess.Popen[bytes] | None = None
 
     def start(self) -> None:
         """Start the MLX LM server and wait for it to be ready."""
         logger.info("Starting MLX server with model: %s", self.model_id)
 
-        self.process = subprocess.Popen(
-            [sys.executable, "-m", "mlx_lm.server", "--model", self.model_id],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
+        try:
+            self.process = subprocess.Popen(
+                [sys.executable, "-m", "mlx_lm.server", "--model", self.model_id],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError:
+            raise ServerError(
+                "MLX not found. Install: pip install mlx-lm"
+            )
 
         start_time = time.time()
-        for line in self.process.stdout:
+        for line in self.process.stdout:  # type: ignore[union-attr]
             if time.time() - start_time > self.timeout:
                 self.stop()
-                raise TimeoutError(
+                raise ServerError(
                     f"MLX server failed to start within {self.timeout}s"
                 )
             if "Starting httpd" in line:
                 logger.info("MLX server is ready")
+                console.print("[green]\u2713[/green] MLX server started")
                 break
 
         time.sleep(2)
@@ -203,16 +229,16 @@ class MLXServer:
 class OllamaServer:
     """Context manager for Ollama server lifecycle (Linux, macOS, Windows)."""
 
-    def __init__(self, model_id: str, timeout: int = SERVER_STARTUP_TIMEOUT):
+    def __init__(self, model_id: str, timeout: int = SERVER_STARTUP_TIMEOUT) -> None:
         self.model_id = model_id
         self.timeout = timeout
-        self.process: subprocess.Popen | None = None
+        self.process: subprocess.Popen[bytes] | None = None
         self._started_by_us = False
 
     def start(self) -> None:
         """Start Ollama if not already running, then pull the model."""
         if not shutil.which("ollama"):
-            raise RuntimeError(
+            raise ServerError(
                 "Ollama is not installed. Install from https://ollama.com\n"
                 "  macOS/Linux: curl -fsSL https://ollama.com/install.sh | sh\n"
                 "  Windows: download from https://ollama.com/download"
@@ -227,6 +253,7 @@ class OllamaServer:
             )
             self._started_by_us = True
             self._wait_for_ready()
+            console.print("[green]\u2713[/green] Ollama server started")
 
         logger.info("Ensuring model is available: %s", self.model_id)
         pull_result = subprocess.run(
@@ -236,7 +263,7 @@ class OllamaServer:
             timeout=self.timeout,
         )
         if pull_result.returncode != 0:
-            raise RuntimeError(
+            raise ServerError(
                 f"Failed to pull model '{self.model_id}': {pull_result.stderr}"
             )
         logger.info("Model ready: %s", self.model_id)
@@ -260,7 +287,7 @@ class OllamaServer:
                 logger.info("Ollama daemon is ready")
                 return
             time.sleep(1)
-        raise TimeoutError(
+        raise ServerError(
             f"Ollama daemon failed to start within {self.timeout}s"
         )
 

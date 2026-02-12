@@ -8,14 +8,20 @@ import sys
 from pathlib import Path
 
 import click
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from ideanator.config import (
     Backend,
     DEFAULT_OUTPUT_FILE,
     get_backend_config,
 )
+from ideanator.exceptions import IdeanatorError, ServerError
 from ideanator.llm import OpenAILocalClient, create_server, preflight_check
 from ideanator.pipeline import run_arise_for_idea, run_arise_interactive
+
+console = Console()
 
 
 # ── Custom help formatter ─────────────────────────────────────────────
@@ -191,6 +197,15 @@ def main(
                 base_url=resolved_url, model_id=resolved_model
             )
             _dispatch(client, file_path, output_path, resolved_model, backend, resolved_url)
+    except ServerError as e:
+        console.print(f"[red]Server error:[/red] {e.message}")
+        if e.details:
+            for k, v in e.details.items():
+                console.print(f"  {k}: {v}")
+        sys.exit(1)
+    except IdeanatorError as e:
+        console.print(f"[red]Error:[/red] {e.message}")
+        sys.exit(1)
     except KeyboardInterrupt:
         click.echo("\n\nInterrupted. Cleaning up...")
         sys.exit(130)
